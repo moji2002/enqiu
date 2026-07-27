@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  display: grid;
+  margin: 0;
+  place-items: center;
+  color: #171713;
+  background: #f7f6f2;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+a {
+  color: inherit;
+  font-weight: 700;
+}

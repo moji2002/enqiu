@@ -1,0 +1,1900 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Enqiu is a type-safe job queue for Node.js and Bun with memory and Redis drivers."
+    />
+    <meta property="og:title" content="Enqiu — Queues without ceremony" />
+    <meta
+      property="og:description"
+      content="Type-safe background jobs with memory and Redis drivers for Node.js and Bun."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Enqiu — Queues without ceremony" />
+    <meta
+      name="twitter:description"
+      content="Type-safe background jobs with memory and Redis drivers for Node.js and Bun."
+    />
+    <meta name="twitter:image" content="og.png" />
+    <title>Enqiu — Queues without ceremony</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f7f6f2;
+        --surface: #ffffff;
+        --surface-soft: #f0efe9;
+        --ink: #161714;
+        --muted: #66685f;
+        --line: #deded6;
+        --line-strong: #c9c9bf;
+        --accent: #ef5b2a;
+        --accent-soft: #fff0e9;
+        --green: #157a57;
+        --green-soft: #e7f5ef;
+        --code: #171813;
+        --code-ink: #f4f5ed;
+        --code-muted: #8f9584;
+        --code-purple: #c9b6ff;
+        --code-orange: #ff9b72;
+        --code-blue: #8fd5ff;
+        --code-green: #a6e3a1;
+        --shadow: 0 1px 2px rgb(20 20 16 / 4%), 0 18px 60px rgb(20 20 16 / 5%);
+        --radius: 14px;
+        --mono: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
+          Consolas, monospace;
+        --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 92px;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 68% 0%, rgb(239 91 42 / 7%), transparent 26rem),
+          var(--paper);
+        font-family: var(--sans);
+        font-size: 15px;
+        line-height: 1.65;
+        text-rendering: optimizeLegibility;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .skip-link {
+        position: fixed;
+        z-index: 100;
+        top: 10px;
+        left: 10px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        color: white;
+        background: var(--ink);
+        transform: translateY(-160%);
+      }
+
+      .skip-link:focus {
+        transform: translateY(0);
+      }
+
+      :focus-visible {
+        outline: 3px solid rgb(239 91 42 / 30%);
+        outline-offset: 3px;
+      }
+
+      .topbar {
+        position: sticky;
+        z-index: 20;
+        top: 0;
+        display: flex;
+        align-items: center;
+        height: 64px;
+        border-bottom: 1px solid rgb(222 222 214 / 85%);
+        background: rgb(247 246 242 / 88%);
+        backdrop-filter: blur(16px);
+      }
+
+      .topbar-inner {
+        display: flex;
+        align-items: center;
+        width: min(1320px, 100%);
+        height: 100%;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 222px;
+        font-size: 19px;
+        font-weight: 760;
+        letter-spacing: -0.04em;
+      }
+
+      .brand-mark {
+        position: relative;
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 8px;
+        color: white;
+        background: var(--ink);
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .brand-mark::after {
+        position: absolute;
+        right: -3px;
+        bottom: -4px;
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: var(--accent);
+        content: "";
+      }
+
+      .version-badge {
+        margin-left: 3px;
+        padding: 2px 7px;
+        border: 1px solid #ffd2c2;
+        border-radius: 999px;
+        color: #b23b17;
+        background: var(--accent-soft);
+        font-size: 10px;
+        font-weight: 750;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .search {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: min(430px, 42vw);
+        height: 36px;
+        margin: 0 auto;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: var(--muted);
+        background: rgb(255 255 255 / 70%);
+        font-size: 13px;
+      }
+
+      .top-links {
+        display: flex;
+        min-width: 222px;
+        justify-content: flex-end;
+        gap: 22px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 210px minmax(0, 760px) 170px;
+        gap: 44px;
+        width: min(1240px, calc(100% - 48px));
+        margin: 0 auto;
+      }
+
+      .sidebar,
+      .toc {
+        position: sticky;
+        top: 96px;
+        align-self: start;
+        max-height: calc(100vh - 120px);
+        overflow: auto;
+        padding-top: 30px;
+      }
+
+      .nav-title {
+        margin: 0 0 8px;
+        color: #999a91;
+        font-size: 10px;
+        font-weight: 760;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .sidebar nav + .nav-title {
+        margin-top: 24px;
+      }
+
+      .sidebar a,
+      .toc a {
+        display: block;
+        padding: 5px 0;
+        color: var(--muted);
+        font-size: 13px;
+        transition: color 140ms ease, transform 140ms ease;
+      }
+
+      .sidebar a:hover,
+      .toc a:hover {
+        color: var(--ink);
+        transform: translateX(2px);
+      }
+
+      .sidebar a.active {
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .runtime-card {
+        margin-top: 30px;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        background: rgb(255 255 255 / 50%);
+      }
+
+      .runtime-card strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+      }
+
+      .runtime-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #28a66f;
+        box-shadow: 0 0 0 3px rgb(40 166 111 / 12%);
+      }
+
+      main {
+        min-width: 0;
+        padding: 76px 0 120px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 18px;
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .eyebrow::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #24a976;
+        box-shadow: 0 0 0 4px rgb(36 169 118 / 12%);
+        content: "";
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.15;
+        letter-spacing: -0.045em;
+      }
+
+      h1 {
+        max-width: 680px;
+        margin: 0;
+        font-size: clamp(46px, 7vw, 74px);
+        font-weight: 790;
+      }
+
+      h1 em {
+        color: var(--accent);
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 500;
+      }
+
+      .lede {
+        max-width: 630px;
+        margin: 24px 0 28px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.65;
+      }
+
+      .hero-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 42px;
+      }
+
+      .tag {
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: #56584f;
+        background: rgb(255 255 255 / 55%);
+        font: 11px var(--mono);
+      }
+
+      .install {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: fit-content;
+        margin-bottom: 64px;
+        padding: 9px 10px 9px 14px;
+        border: 1px solid #292b24;
+        border-radius: 11px;
+        color: #f4f5ed;
+        background: var(--code);
+        box-shadow: var(--shadow);
+        font: 13px var(--mono);
+      }
+
+      .install .prompt {
+        color: var(--code-muted);
+        user-select: none;
+      }
+
+      .copy-button {
+        display: inline-grid;
+        width: 30px;
+        height: 28px;
+        margin-left: 12px;
+        place-items: center;
+        border: 1px solid #3a3c34;
+        border-radius: 7px;
+        color: #afb3a5;
+        background: #24251f;
+        cursor: pointer;
+      }
+
+      .copy-button:hover {
+        color: white;
+        border-color: #55584d;
+      }
+
+      section {
+        margin-top: 76px;
+      }
+
+      section:first-of-type {
+        margin-top: 0;
+      }
+
+      .section-kicker {
+        margin-bottom: 8px;
+        color: var(--accent);
+        font: 700 11px var(--mono);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      h2 {
+        margin: 0 0 13px;
+        font-size: 32px;
+        font-weight: 760;
+      }
+
+      h3 {
+        margin: 30px 0 10px;
+        font-size: 18px;
+      }
+
+      .section-copy {
+        max-width: 650px;
+        margin: 0 0 24px;
+        color: var(--muted);
+      }
+
+      .notice {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 12px;
+        margin: 24px 0;
+        padding: 16px 18px;
+        border: 1px solid #cbe8dc;
+        border-radius: 12px;
+        background: var(--green-soft);
+      }
+
+      .notice-icon {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 9px;
+        color: white;
+        background: var(--green);
+        font-weight: 800;
+      }
+
+      .notice strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 13px;
+      }
+
+      .notice p {
+        margin: 0;
+        color: #416a5b;
+        font-size: 13px;
+      }
+
+      .tab-shell {
+        overflow: hidden;
+        border: 1px solid #292b24;
+        border-radius: var(--radius);
+        background: var(--code);
+        box-shadow: var(--shadow);
+      }
+
+      .tabs {
+        display: flex;
+        align-items: center;
+        min-height: 45px;
+        padding: 0 10px;
+        border-bottom: 1px solid #30322b;
+        background: #1d1e19;
+      }
+
+      .tab {
+        position: relative;
+        align-self: stretch;
+        padding: 0 12px;
+        border: 0;
+        color: #8f9584;
+        background: transparent;
+        cursor: pointer;
+        font: 11px var(--mono);
+      }
+
+      .tab[aria-selected="true"] {
+        color: #f4f5ed;
+      }
+
+      .tab[aria-selected="true"]::after {
+        position: absolute;
+        right: 10px;
+        bottom: -1px;
+        left: 10px;
+        height: 2px;
+        border-radius: 2px 2px 0 0;
+        background: var(--accent);
+        content: "";
+      }
+
+      .tabs .copy-button {
+        margin-left: auto;
+      }
+
+      .file-label {
+        padding: 0 12px;
+        color: #f4f5ed;
+        font: 11px var(--mono);
+      }
+
+      pre {
+        margin: 0;
+        padding: 22px 24px 24px;
+        overflow: auto;
+        color: var(--code-ink);
+        background: var(--code);
+        font: 12.5px/1.72 var(--mono);
+        tab-size: 2;
+      }
+
+      code {
+        font-family: var(--mono);
+      }
+
+      :not(pre) > code {
+        padding: 2px 5px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: #36382f;
+        background: var(--surface-soft);
+        font-size: 0.86em;
+      }
+
+      .token-comment {
+        color: var(--code-muted);
+      }
+
+      .token-keyword {
+        color: var(--code-purple);
+      }
+
+      .token-string {
+        color: var(--code-green);
+      }
+
+      .token-type,
+      .token-number {
+        color: var(--code-orange);
+      }
+
+      .token-call {
+        color: var(--code-blue);
+      }
+
+      .code-panel[hidden] {
+        display: none;
+      }
+
+      .inference-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin: 24px 0;
+      }
+
+      .inference-card {
+        min-height: 132px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgb(255 255 255 / 55%);
+      }
+
+      .inference-card .step {
+        display: grid;
+        width: 24px;
+        height: 24px;
+        margin-bottom: 20px;
+        place-items: center;
+        border-radius: 7px;
+        color: var(--accent);
+        background: var(--accent-soft);
+        font: 700 11px var(--mono);
+      }
+
+      .inference-card strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 13px;
+      }
+
+      .inference-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .driver-card {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 18px 0 22px;
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+        box-shadow: 0 8px 32px rgb(20 20 16 / 3%);
+      }
+
+      .driver-icon {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 10px;
+        color: white;
+        background: var(--ink);
+        font: 800 13px var(--mono);
+      }
+
+      .driver-copy {
+        min-width: 0;
+      }
+
+      .driver-copy strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .driver-copy span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .driver-arrow {
+        margin-left: auto;
+        color: #a1a299;
+        font-size: 19px;
+      }
+
+      .api-list {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgb(255 255 255 / 52%);
+      }
+
+      .api-row {
+        display: grid;
+        grid-template-columns: minmax(160px, 0.8fr) 1.5fr;
+        gap: 22px;
+        padding: 15px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .api-row:last-child {
+        border-bottom: 0;
+      }
+
+      .api-row code {
+        color: #22231e;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .api-row span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .principles {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .principle {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgb(255 255 255 / 52%);
+      }
+
+      .principle strong {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 13px;
+      }
+
+      .principle p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .principle > code {
+        display: inline-block;
+        margin-bottom: 7px;
+      }
+
+      .scope-note {
+        margin: 18px 0 0;
+        padding: 14px 16px;
+        border-left: 3px solid var(--accent);
+        color: var(--muted);
+        background: var(--accent-soft);
+        font-size: 12px;
+      }
+
+      .decision {
+        position: relative;
+        overflow: hidden;
+        margin-top: 78px;
+        padding: 28px;
+        border-radius: 16px;
+        color: #f8f8f2;
+        background: var(--ink);
+        box-shadow: var(--shadow);
+      }
+
+      .decision::after {
+        position: absolute;
+        right: -36px;
+        bottom: -66px;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background: var(--accent);
+        content: "";
+        opacity: 0.8;
+      }
+
+      .decision > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .decision .section-kicker {
+        color: #ffad90;
+      }
+
+      .decision h2 {
+        max-width: 510px;
+        font-size: 28px;
+      }
+
+      .decision p {
+        max-width: 535px;
+        margin-bottom: 0;
+        color: #b9bcb0;
+        font-size: 13px;
+      }
+
+      .decision-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 20px;
+      }
+
+      .decision-list span {
+        padding: 5px 9px;
+        border: 1px solid #3d3f37;
+        border-radius: 7px;
+        background: #23241f;
+        font: 10px var(--mono);
+      }
+
+      .toc {
+        padding-left: 2px;
+      }
+
+      .toc a {
+        padding: 4px 0 4px 12px;
+        border-left: 1px solid var(--line);
+        font-size: 11px;
+      }
+
+      .toc a.active {
+        border-left-color: var(--accent);
+        color: var(--ink);
+      }
+
+      .toc-note {
+        margin-top: 25px;
+        padding: 12px;
+        border: 1px solid #ffd7c8;
+        border-radius: 10px;
+        color: #98401f;
+        background: var(--accent-soft);
+        font-size: 10px;
+        line-height: 1.55;
+      }
+
+      @media (max-width: 1040px) {
+        .layout {
+          grid-template-columns: 190px minmax(0, 1fr);
+          gap: 34px;
+        }
+
+        .toc {
+          display: none;
+        }
+
+        .top-links {
+          min-width: 0;
+        }
+
+        .brand {
+          min-width: 190px;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .topbar-inner {
+          padding: 0 16px;
+        }
+
+        .version-badge,
+        .search,
+        .top-links,
+        .sidebar {
+          display: none;
+        }
+
+        .layout {
+          display: block;
+          width: min(100% - 32px, 700px);
+        }
+
+        main {
+          padding-top: 54px;
+        }
+
+        h1 {
+          font-size: 48px;
+        }
+
+        .lede {
+          font-size: 16px;
+        }
+
+        .inference-grid,
+        .principles {
+          grid-template-columns: 1fr;
+        }
+
+        .api-row {
+          grid-template-columns: 1fr;
+          gap: 5px;
+        }
+
+        pre {
+          padding: 18px;
+          font-size: 11.5px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#top" aria-label="Enqiu documentation home">
+          <span class="brand-mark">e</span>
+          <span>Enqiu</span>
+          <span class="version-badge">v0.1</span>
+        </a>
+        <div class="search">
+          Typed jobs · Memory + Redis · Node.js + Bun
+        </div>
+        <nav class="top-links" aria-label="Top navigation">
+          <a href="#api">API</a>
+          <a href="#hono">Hono</a>
+          <a href="#decision">Install</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="layout" id="top">
+      <aside class="sidebar">
+        <p class="nav-title">Start</p>
+        <nav aria-label="Documentation navigation">
+          <a class="active" href="#quick-start">Quick start</a>
+          <a href="#inference">Type inference</a>
+          <a href="#drivers">Drivers</a>
+        </nav>
+
+        <p class="nav-title">Guides</p>
+        <nav>
+          <a href="#redis">Redis</a>
+          <a href="#hono">Hono</a>
+          <a href="#policies">Job policies</a>
+          <a href="#schedules">Cron schedules</a>
+          <a href="#reliability">Reliability</a>
+        </nav>
+
+        <p class="nav-title">Reference</p>
+        <nav>
+          <a href="#api">Queue API</a>
+          <a href="#job-handle">Job handle</a>
+          <a href="#decision">Install Enqiu</a>
+        </nav>
+
+        <div class="runtime-card">
+          <strong>Runtime support</strong>
+          <div class="runtime-row">
+            <span class="status-dot"></span>
+            <span>Node.js · Bun</span>
+          </div>
+        </div>
+      </aside>
+
+      <main id="content">
+        <div class="eyebrow">Zero runtime dependencies</div>
+        <h1>Queues without <em>ceremony.</em></h1>
+        <p class="lede">
+          One small, fully inferred API for background work. Start in memory,
+          switch to Redis without rewriting your jobs, and use it naturally from
+          Node.js, Bun, or Hono.
+        </p>
+        <div class="hero-tags" aria-label="Package qualities">
+          <span class="tag">typed by inference</span>
+          <span class="tag">memory + redis</span>
+          <span class="tag">39 tests · Node + Bun</span>
+          <span class="tag">cron schedules</span>
+          <span class="tag">web standards</span>
+        </div>
+        <div class="install">
+          <span class="prompt">$</span>
+          <span>pnpm add enqiu</span>
+          <button
+            class="copy-button"
+            type="button"
+            data-copy="pnpm add enqiu"
+            aria-label="Copy install command"
+            title="Copy"
+          >
+            ⧉
+          </button>
+        </div>
+
+        <section id="quick-start">
+          <p class="section-kicker">01 · Quick start</p>
+          <h2>Your handlers are the types.</h2>
+          <p class="section-copy">
+            Define each payload once, next to the code that uses it. Enqiu infers
+            every job name, input, returned result, and event shape.
+            There is no job-map interface and no generic to pass.
+          </p>
+
+          <div class="tab-shell" data-tabs>
+            <div class="tabs" role="tablist" aria-label="Definition style">
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="true"
+                data-tab="schema"
+              >
+                schema-first
+              </button>
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                data-tab="handler"
+              >
+                handler-first
+              </button>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-panel
+                aria-label="Copy code"
+                title="Copy code"
+              >
+                ⧉
+              </button>
+            </div>
+            <div class="code-panel" role="tabpanel" data-panel="schema">
+              <pre><code><span class="token-keyword">import</span> { enqiu, job } <span class="token-keyword">from</span> <span class="token-string">'enqiu'</span>
+<span class="token-keyword">import</span> { z } <span class="token-keyword">from</span> <span class="token-string">'zod'</span>
+
+<span class="token-keyword">const</span> jobs = <span class="token-call">enqiu</span>({
+  sendEmail: <span class="token-call">job</span>({
+    input: z.<span class="token-call">object</span>({
+      to: z.<span class="token-call">string</span>().<span class="token-call">email</span>(),
+      subject: z.<span class="token-call">string</span>(),
+    }),
+    run: <span class="token-keyword">async</span> (input) => {
+      <span class="token-comment">// input is inferred and validated</span>
+      <span class="token-keyword">return</span> { deliveredAt: Date.<span class="token-call">now</span>() }
+    },
+  }),
+})
+
+<span class="token-keyword">const</span> email = <span class="token-keyword">await</span> jobs.<span class="token-call">sendEmail</span>({
+  to: <span class="token-string">'hello@enqiu.dev'</span>,
+  subject: <span class="token-string">'Welcome'</span>,
+})
+
+<span class="token-comment">// The selected driver has accepted the job.</span>
+<span class="token-keyword">const</span> result = <span class="token-keyword">await</span> email.result
+<span class="token-comment">//    ^? { deliveredAt: number }</span></code></pre>
+            </div>
+            <div
+              class="code-panel"
+              role="tabpanel"
+              data-panel="handler"
+              hidden
+            >
+              <pre><code><span class="token-keyword">import</span> { enqiu } <span class="token-keyword">from</span> <span class="token-string">'enqiu'</span>
+
+<span class="token-keyword">const</span> jobs = <span class="token-call">enqiu</span>({
+  sendEmail: <span class="token-keyword">async</span> (
+    input: { to: <span class="token-type">string</span>; subject: <span class="token-type">string</span> },
+  ) => {
+    <span class="token-keyword">return</span> { deliveredAt: Date.<span class="token-call">now</span>() }
+  },
+})
+
+<span class="token-keyword">const</span> email = <span class="token-keyword">await</span> jobs.<span class="token-call">sendEmail</span>({
+  to: <span class="token-string">'hello@enqiu.dev'</span>,
+  subject: <span class="token-string">'Welcome'</span>,
+})
+
+<span class="token-comment">// No JobMap, interfaces, result types, or generics.</span>
+<span class="token-keyword">const</span> result = <span class="token-keyword">await</span> email.result
+<span class="token-comment">//    ^? { deliveredAt: number }</span></code></pre>
+            </div>
+          </div>
+
+          <div class="notice">
+            <span class="notice-icon">✓</span>
+            <div>
+              <strong>The job name is never repeated</strong>
+              <p>
+                Once <code>sendEmail</code> is defined, it becomes a typed method.
+                There are no string names at call sites. With Redis, the
+                definition key is also its durable identity, so drain or migrate
+                queued work before renaming it.
+              </p>
+            </div>
+          </div>
+          <div class="notice">
+            <span class="notice-icon">✓</span>
+            <div>
+              <strong>No handwritten TypeScript types with schema-first jobs</strong>
+              <p>
+                Any Standard Schema-compatible library can provide both inference
+                and runtime validation. Zod is shown only as an example and is not
+                an Enqiu dependency.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="inference">
+          <p class="section-kicker">02 · Type inference</p>
+          <h2>One source of truth.</h2>
+          <p class="section-copy">
+            Types travel from the job definition through the entire lifecycle.
+            Rename a job or change its payload and every caller updates with it.
+          </p>
+          <div class="inference-grid">
+            <article class="inference-card">
+              <span class="step">1</span>
+              <strong>Define</strong>
+              <p>The handler or schema owns the input and result shape.</p>
+            </article>
+            <article class="inference-card">
+              <span class="step">2</span>
+              <strong>Call</strong>
+              <p>Autocomplete knows valid names, payloads, and options.</p>
+            </article>
+            <article class="inference-card">
+              <span class="step">3</span>
+              <strong>Result</strong>
+              <p>The job’s result promise has the handler’s exact return type.</p>
+            </article>
+          </div>
+          <div class="tab-shell">
+            <div class="tabs">
+              <span class="file-label">
+                inference.ts
+              </span>
+            </div>
+            <pre><code><span class="token-keyword">await</span> jobs.<span class="token-call">sendEmail</span>({
+  to: <span class="token-number">42</span>,
+  <span class="token-comment">//  ~~ Type 'number' is not assignable to type 'string'</span>
+})
+
+<span class="token-keyword">await</span> jobs.<span class="token-call">missingJob</span>({})
+<span class="token-comment">//   ~~~~~~~~~~ Property 'missingJob' does not exist</span>
+
+jobs.queue.<span class="token-call">on</span>(<span class="token-string">'succeeded'</span>, (job) => {
+  <span class="token-keyword">if</span> (job.name === <span class="token-string">'sendEmail'</span>) {
+    job.output.deliveredAt
+    <span class="token-comment">//         ^? number — narrowed by job name</span>
+  }
+})</code></pre>
+          </div>
+        </section>
+
+        <section id="drivers">
+          <p class="section-kicker">03 · Drivers</p>
+          <h2>Start small. Scale without a rewrite.</h2>
+          <p class="section-copy">
+            Memory is the default and needs no setup. Redis is one option away,
+            while handlers and producer code stay exactly the same.
+          </p>
+
+          <div class="driver-card">
+            <span class="driver-icon">mem</span>
+            <span class="driver-copy">
+              <strong>In memory</strong>
+              <span>Zero dependencies · tests · local work · single process</span>
+            </span>
+          </div>
+          <a class="driver-card" href="#redis">
+            <span class="driver-icon" style="background: #d9472b">R</span>
+            <span class="driver-copy">
+              <strong>Redis</strong>
+              <span>Durable · distributed · Node.js and Bun clients</span>
+            </span>
+            <span class="driver-arrow" aria-hidden="true">→</span>
+          </a>
+
+          <div class="tab-shell" data-tabs id="redis">
+            <div class="tabs" role="tablist" aria-label="Driver examples">
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="true"
+                data-tab="memory"
+              >
+                memory
+              </button>
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                data-tab="bun"
+              >
+                redis · bun
+              </button>
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                data-tab="node"
+              >
+                redis · node
+              </button>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-panel
+                aria-label="Copy code"
+                title="Copy code"
+              >
+                ⧉
+              </button>
+            </div>
+            <div class="code-panel" role="tabpanel" data-panel="memory">
+              <pre><code><span class="token-comment">// Memory is intentionally boring.</span>
+<span class="token-keyword">const</span> jobs = <span class="token-call">enqiu</span>(definitions)
+
+<span class="token-keyword">await</span> jobs.<span class="token-call">sendEmail</span>({ to, subject })
+<span class="token-comment">// The in-process worker starts automatically.</span></code></pre>
+            </div>
+            <div class="code-panel" role="tabpanel" data-panel="bun" hidden>
+              <pre><code><span class="token-keyword">import</span> { RedisClient } <span class="token-keyword">from</span> <span class="token-string">'bun'</span>
+<span class="token-keyword">import</span> { enqiu, redis } <span class="token-keyword">from</span> <span class="token-string">'enqiu'</span>
+
+<span class="token-keyword">const</span> client = <span class="token-keyword">new</span> <span class="token-call">RedisClient</span>(Bun.env.REDIS_URL)
+<span class="token-keyword">await</span> client.<span class="token-call">connect</span>()
+
+<span class="token-keyword">const</span> jobs = <span class="token-call">enqiu</span>(definitions, {
+  name: <span class="token-string">'emails'</span>,
+  driver: <span class="token-call">redis</span>(client),
+  worker: <span class="token-keyword">false</span>, <span class="token-comment">// Producer-only API process</span>
+})</code></pre>
+            </div>
+            <div class="code-panel" role="tabpanel" data-panel="node" hidden>
+              <pre><code><span class="token-keyword">import</span> { createClient } <span class="token-keyword">from</span> <span class="token-string">'redis'</span>
+<span class="token-keyword">import</span> { enqiu, redis } <span class="token-keyword">from</span> <span class="token-string">'enqiu'</span>
+
+<span class="token-keyword">const</span> client = <span class="token-call">createClient</span>({
+  url: process.env.REDIS_URL,
+})
+<span class="token-keyword">await</span> client.<span class="token-call">connect</span>()
+
+<span class="token-keyword">const</span> jobs = <span class="token-call">enqiu</span>(definitions, {
+  name: <span class="token-string">'emails'</span>,
+  driver: <span class="token-call">redis</span>(client),
+  worker: <span class="token-keyword">false</span>, <span class="token-comment">// Producer-only API process</span>
+})</code></pre>
+            </div>
+          </div>
+          <p class="scope-note">
+            Redis workers are explicit in production:
+            <code>worker: { concurrency: 10 }</code>. Set
+            <code>worker: false</code> in an HTTP producer so importing job
+            definitions never starts background work unexpectedly.
+          </p>
+        </section>
+
+        <section id="hono">
+          <p class="section-kicker">04 · Hono</p>
+          <h2>Web-standard by design.</h2>
+          <p class="section-copy">
+            Enqiu uses platform APIs such as <code>AbortSignal</code> and
+            <code>Promise</code>. Hono apps running on Node.js or Bun can validate
+            a request with the same Standard Schema used by the job.
+          </p>
+          <div class="tab-shell">
+            <div class="tabs">
+              <span class="file-label">
+                routes.ts
+              </span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-panel
+                aria-label="Copy code"
+                title="Copy code"
+              >
+                ⧉
+              </button>
+            </div>
+            <div class="code-panel">
+              <pre><code><span class="token-keyword">import</span> { Hono } <span class="token-keyword">from</span> <span class="token-string">'hono'</span>
+<span class="token-keyword">import</span> { sValidator } <span class="token-keyword">from</span> <span class="token-string">'@hono/standard-validator'</span>
+<span class="token-keyword">import</span> { jobs } <span class="token-keyword">from</span> <span class="token-string">'./jobs'</span>
+
+<span class="token-keyword">const</span> app = <span class="token-keyword">new</span> <span class="token-call">Hono</span>()
+
+app.<span class="token-call">post</span>(
+  <span class="token-string">'/emails'</span>,
+  <span class="token-call">sValidator</span>(<span class="token-string">'json'</span>, jobs.sendEmail.input),
+  <span class="token-keyword">async</span> (c) => {
+    <span class="token-keyword">const</span> job = <span class="token-keyword">await</span> jobs.<span class="token-call">sendEmail</span>(
+      c.req.<span class="token-call">valid</span>(<span class="token-string">'json'</span>),
+    )
+    <span class="token-keyword">return</span> c.<span class="token-call">json</span>({ id: job.id }, <span class="token-number">202</span>)
+  },
+)
+
+app.<span class="token-call">get</span>(<span class="token-string">'/jobs/:id'</span>, <span class="token-keyword">async</span> (c) => {
+  <span class="token-keyword">const</span> job = <span class="token-keyword">await</span> jobs.queue.<span class="token-call">get</span>(c.req.<span class="token-call">param</span>(<span class="token-string">'id'</span>))
+  <span class="token-keyword">return</span> job
+    ? c.<span class="token-call">json</span>(job)
+    : c.<span class="token-call">json</span>({ error: <span class="token-string">'Not found'</span> }, <span class="token-number">404</span>)
+})</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="policies">
+          <p class="section-kicker">05 · Job policies</p>
+          <h2>Advanced when the work demands it.</h2>
+          <p class="section-copy">
+            Policies sit beside the handler and inherit its input type. They do
+            not add new producer methods or weaken inference, and none are
+            required for an ordinary job.
+          </p>
+
+          <div class="tab-shell" data-tabs>
+            <div class="tabs" role="tablist" aria-label="Advanced job policies">
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="true"
+                data-tab="limits"
+              >
+                limits
+              </button>
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                data-tab="debounce"
+              >
+                debounce
+              </button>
+              <button
+                class="tab"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                data-tab="observability"
+              >
+                observability
+              </button>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-panel
+                aria-label="Copy code"
+                title="Copy code"
+              >
+                ⧉
+              </button>
+            </div>
+            <div class="code-panel" role="tabpanel" data-panel="limits">
+              <pre><code>sendEmail: <span class="token-call">job</span>({
+  input: emailSchema,
+  expiresIn: <span class="token-number">10</span> * <span class="token-number">60_000</span>,
+
+  concurrency: {
+    limit: <span class="token-number">2</span>,
+    by: (input) => input.organizationId,
+  },
+
+  throttle: {
+    limit: <span class="token-number">100</span>,
+    per: <span class="token-number">60_000</span>,
+    burst: <span class="token-number">20</span>,
+  },
+
+  run: sendEmail,
+})</code></pre>
+            </div>
+            <div
+              class="code-panel"
+              role="tabpanel"
+              data-panel="debounce"
+              hidden
+            >
+              <pre><code>rebuildSearch: <span class="token-call">job</span>({
+  input: rebuildSchema,
+
+  debounce: {
+    by: (input) => input.organizationId,
+    wait: <span class="token-number">2_000</span>,
+    mode: <span class="token-string">'trailing'</span>,
+  },
+
+  run: rebuildSearch,
+})
+
+<span class="token-comment">// Rapid calls for one organization become one job.</span>
+<span class="token-comment">// The latest valid input is used after two quiet seconds.</span></code></pre>
+            </div>
+            <div
+              class="code-panel"
+              role="tabpanel"
+              data-panel="observability"
+              hidden
+            >
+              <pre><code><span class="token-keyword">import</span> { trace } <span class="token-keyword">from</span> <span class="token-string">'@opentelemetry/api'</span>
+
+<span class="token-keyword">const</span> tracer = trace.<span class="token-call">getTracer</span>(<span class="token-string">'enqiu'</span>)
+<span class="token-keyword">const</span> jobs = <span class="token-call">enqiu</span>(definitions, {
+  telemetry: {
+    emit(event) {
+      tracer.<span class="token-call">startSpan</span>(event.type, {
+        attributes: {
+          <span class="token-string">'enqiu.queue'</span>: event.queue,
+          <span class="token-string">'enqiu.job.id'</span>: event.job?.id,
+        },
+      }).<span class="token-call">end</span>()
+    },
+  },
+})
+
+<span class="token-keyword">async function</span> sendEmail(input, context) {
+  context.log.<span class="token-call">info</span>(<span class="token-string">'Sending email'</span>, {
+    organizationId: input.organizationId,
+  })
+
+  <span class="token-keyword">await</span> context.<span class="token-call">reportProgress</span>({
+    completed: <span class="token-number">1</span>,
+    total: <span class="token-number">3</span>,
+  })
+}</code></pre>
+            </div>
+          </div>
+          <p class="scope-note">
+            Enqiu accepts durations as milliseconds. Use plain numbers or an
+            application-level helper such as <code>ms()</code>; it is not an
+            Enqiu dependency.
+          </p>
+
+          <div class="principles" style="margin-top: 18px">
+            <article class="principle">
+              <code>debounce</code>
+              <strong>Collapse rapid duplicate work</strong>
+              <p>
+                <code>leading</code> runs the first call immediately;
+                <code>trailing</code> waits and runs the latest call after the
+                quiet period.
+              </p>
+            </article>
+            <article class="principle">
+              <code>throttle</code>
+              <strong>Protect downstream services</strong>
+              <p>
+                Run at a steady limit while <code>burst</code> permits a small
+                immediate spike without removing the long-term cap.
+              </p>
+            </article>
+            <article class="principle">
+              <code>concurrency.by</code>
+              <strong>Fairness per customer</strong>
+              <p>
+                Apply the limit separately to each organization, account, or
+                other inferred key so one tenant cannot occupy every worker.
+              </p>
+            </article>
+            <article class="principle">
+              <code>expiresIn</code>
+              <strong>Drop stale work</strong>
+              <p>
+                Expire a job before it begins when executing it late would be
+                incorrect. Expired jobs remain inspectable as a terminal state.
+              </p>
+            </article>
+            <article class="principle">
+              <code>jobs.queue.pause()</code>
+              <strong>Redis-wide operations</strong>
+              <p>
+                Pause, resume, or change concurrency across every worker. Local
+                process controls remain under <code>jobs.worker</code>.
+              </p>
+            </article>
+            <article class="principle">
+              <code>context.log</code>
+              <strong>Observability without lock-in</strong>
+              <p>
+                Structured job logs and lifecycle events work alone. The small
+                telemetry hook can forward events to OpenTelemetry without
+                making tracing a required dependency.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section id="schedules">
+          <p class="section-kicker">06 · Cron schedules</p>
+          <h2>Recurring work without another scheduler.</h2>
+          <p class="section-copy">
+            Schedule a defined job directly, so its name, input, and result stay
+            inferred. Registering the same schedule again updates it instead of
+            creating a duplicate.
+          </p>
+
+          <div class="tab-shell">
+            <div class="tabs">
+              <span class="file-label">schedules.ts</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-panel
+                aria-label="Copy code"
+                title="Copy code"
+              >
+                ⧉
+              </button>
+            </div>
+            <div class="code-panel">
+              <pre><code><span class="token-keyword">const</span> schedule = <span class="token-keyword">await</span> jobs.sendDigest.<span class="token-call">schedule</span>({
+  cron: <span class="token-string">'0 9 * * 1-5'</span>,
+  timezone: <span class="token-string">'Europe/Nicosia'</span>,
+  input: { audience: <span class="token-string">'active-users'</span> },
+})
+
+schedule.id
+schedule.nextRunAt
+
+<span class="token-keyword">await</span> schedule.<span class="token-call">pause</span>()
+<span class="token-keyword">await</span> schedule.<span class="token-call">resume</span>()
+<span class="token-keyword">await</span> schedule.<span class="token-call">remove</span>()</code></pre>
+            </div>
+          </div>
+
+          <div class="principles" style="margin-top: 18px">
+            <article class="principle">
+              <strong>Predictable time</strong>
+              <p>
+                UTC is the default. An IANA timezone makes daylight-saving
+                behavior explicit.
+              </p>
+            </article>
+            <article class="principle">
+              <strong>Ordinary job runs</strong>
+              <p>
+                Every occurrence gets the same retries, logs, events, progress,
+                and inspection as a manually submitted job.
+              </p>
+            </article>
+            <article class="principle">
+              <strong>Safe registration</strong>
+              <p>
+                One default schedule is upserted per job. Add an optional
+                <code>id</code> only when a job needs multiple schedules.
+              </p>
+            </article>
+            <article class="principle">
+              <strong>Honest durability</strong>
+              <p>
+                Redis schedules survive restarts and coordinate across workers.
+                Memory schedules exist only for the current process lifetime.
+              </p>
+            </article>
+          </div>
+          <p class="scope-note">
+            Missed runs are skipped by default to avoid a restart storm.
+            <code>catchUp: true</code> opts into replaying missed occurrences.
+          </p>
+        </section>
+
+        <section id="reliability">
+          <p class="section-kicker">07 · Reliability</p>
+          <h2>Useful power, quiet defaults.</h2>
+          <p class="section-copy">
+            The common path stays tiny. Production controls appear only when you
+            need them. Memory and Redis share one behavioral contract, with
+            durability differences stated plainly.
+          </p>
+          <div class="principles">
+            <article class="principle">
+              <strong>Retries + backoff</strong>
+              <p>Fixed or exponential retries, configurable globally or per job.</p>
+            </article>
+            <article class="principle">
+              <strong>Priority + delay</strong>
+              <p>Schedule work or move urgent jobs ahead without changing handlers.</p>
+            </article>
+            <article class="principle">
+              <strong>Idempotency + deduplication</strong>
+              <p>
+                A durable key returns the existing job, including during the
+                configured completed-result retention window.
+              </p>
+            </article>
+            <article class="principle">
+              <strong>Cancellation</strong>
+              <p>
+                Remove waiting work or cooperatively abort a running handler
+                through the standard AbortSignal API.
+              </p>
+            </article>
+            <article class="principle">
+              <strong>Crash recovery</strong>
+              <p>Redis leases let another worker reclaim abandoned work.</p>
+            </article>
+            <article class="principle">
+              <strong>Graceful shutdown</strong>
+              <p>Stop accepting work and drain active handlers before exit.</p>
+            </article>
+            <article class="principle">
+              <strong>Dead-letter + redrive</strong>
+              <p>
+                Exhausted jobs remain inspectable and can be retried after their
+                underlying problem is fixed.
+              </p>
+            </article>
+            <article class="principle">
+              <strong>Structured progress + logs</strong>
+              <p>
+                Report completed and total units, attach JSON-safe fields, and
+                inspect the retained execution story after a failure.
+              </p>
+            </article>
+          </div>
+
+          <h3>The reliability contract</h3>
+          <div class="api-list">
+            <div class="api-row">
+              <code>at least once</code>
+              <span>
+                A worker crash can run a handler again. Side-effecting handlers
+                should therefore be idempotent.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>JSON-safe data</code>
+              <span>
+                Inputs, results, errors, progress, and log fields have the same
+                serializable shape in memory and Redis.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>best-effort cancel</code>
+              <span>
+                Waiting jobs stop immediately; running handlers must observe
+                <code>context.signal</code>.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>explicit retention</code>
+              <span>
+                Completed results, failed jobs, logs, and idempotency keys have
+                separate configurable retention periods.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>memory ≠ durable</code>
+              <span>
+                Memory is behavior-compatible but disappears with the process.
+                Redis persists and coordinates work across machines.
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section id="api">
+          <p class="section-kicker">08 · API surface</p>
+          <h2>A small core with progressive power.</h2>
+          <p class="section-copy">
+            Call jobs directly. Definition policies describe behavior, queue
+            methods affect distributed state, and worker methods affect only the
+            current process.
+          </p>
+          <div class="api-list">
+            <div class="api-row">
+              <code>enqiu(definitions, options?)</code>
+              <span>Create a typed memory or Redis-backed queue.</span>
+            </div>
+            <div class="api-row">
+              <code>await jobs.&lt;name&gt;(input, options?)</code>
+              <span>
+                Submit a job and receive its inferred handle after the selected
+                driver accepts it.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>await jobs.&lt;name&gt;.bulk(inputs)</code>
+              <span>Add many inferred jobs without repeating the job name.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.&lt;name&gt;.schedule(options)</code>
+              <span>Upsert a typed cron schedule for the defined job.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.queue.get(id) · list(query) · stats()</code>
+              <span>Inspect jobs with status, job type, time, and cursor filters.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.queue.on(event, listener)</code>
+              <span>
+                Observe distributed lifecycle events with typed job narrowing in
+                Redis, and in-process events in memory.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>jobs.queue.pause() · resume()</code>
+              <span>Pause or resume the entire Redis queue.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.queue.setConcurrency(limit)</code>
+              <span>Set a queue-wide limit across every Redis worker.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.queue.redrive(id)</code>
+              <span>Move a dead-letter job back to waiting after inspection.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.worker.pause() · resume()</code>
+              <span>Control only the worker running in this process.</span>
+            </div>
+            <div class="api-row">
+              <code>jobs.worker.onIdle() · close()</code>
+              <span>Drain and close the local worker during tests or deployment.</span>
+            </div>
+          </div>
+
+          <h3 id="job-handle">The job handle</h3>
+          <div class="api-list">
+            <div class="api-row">
+              <code>job.id · job.status</code>
+              <span>
+                Available after acceptance; <code>status</code> is a snapshot.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>await job.result</code>
+              <span>
+                Wait for the inferred result, or reject when the job fails,
+                expires, or is cancelled.
+              </span>
+            </div>
+            <div class="api-row">
+              <code>await job.cancel(reason?)</code>
+              <span>Request cancellation with the reliability rules above.</span>
+            </div>
+            <div class="api-row">
+              <code>await job.refresh()</code>
+              <span>Fetch fresh distributed state; immediate in memory.</span>
+            </div>
+          </div>
+
+          <h3>Per-call options</h3>
+          <div class="tab-shell">
+            <div class="tabs">
+              <span class="file-label">producer.ts</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-panel
+                aria-label="Copy code"
+                title="Copy code"
+              >
+                ⧉
+              </button>
+            </div>
+            <div class="code-panel">
+              <pre><code><span class="token-keyword">import</span> ms <span class="token-keyword">from</span> <span class="token-string">'ms'</span>
+
+<span class="token-keyword">const</span> email = <span class="token-keyword">await</span> jobs.<span class="token-call">sendEmail</span>(input, {
+  priority: <span class="token-string">'high'</span>,
+  delay: <span class="token-call">ms</span>(<span class="token-string">'5s'</span>),
+  expiresIn: <span class="token-call">ms</span>(<span class="token-string">'10m'</span>),
+  idempotencyKey: <span class="token-string">`welcome:${user.id}`</span>,
+})</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="decision" id="decision">
+          <p class="section-kicker">Start simple</p>
+          <h2>Call the work. Enqiu queues it.</h2>
+          <p>
+            Install Enqiu and start with the memory driver. Your job definitions,
+            direct calls, inferred results, and Hono routes stay the same when
+            you add Redis later.
+          </p>
+          <div class="install" style="margin: 22px 0 0">
+            <span class="prompt">$</span>
+            <span>pnpm add enqiu</span>
+            <button
+              class="copy-button"
+              type="button"
+              data-copy="pnpm add enqiu"
+              aria-label="Copy install command"
+              title="Copy"
+            >
+              ⧉
+            </button>
+          </div>
+          <div class="decision-list" aria-label="Enqiu package summary">
+            <span>no generics</span>
+            <span>no type map</span>
+            <span>schema optional</span>
+            <span>direct job methods</span>
+            <span>explicit job.result</span>
+            <span>memory default</span>
+            <span>redis(client)</span>
+            <span>cron schedules</span>
+            <span>debounce + throttle</span>
+            <span>tenant fairness</span>
+            <span>job expiration</span>
+            <span>telemetry hooks</span>
+          </div>
+        </section>
+      </main>
+
+      <aside class="toc" aria-label="On this page">
+        <p class="nav-title">On this page</p>
+        <a class="active" href="#quick-start">Quick start</a>
+        <a href="#inference">Type inference</a>
+        <a href="#drivers">Drivers</a>
+        <a href="#hono">Hono</a>
+        <a href="#policies">Job policies</a>
+        <a href="#schedules">Cron schedules</a>
+        <a href="#reliability">Reliability</a>
+        <a href="#api">API surface</a>
+        <a href="#decision">Install Enqiu</a>
+        <div class="toc-note">
+          Memory and Redis share one public contract. Durability differences are
+          called out explicitly.
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      const copy = async (value, button) => {
+        const previous = button.textContent;
+        const previousLabel = button.getAttribute("aria-label");
+        try {
+          await navigator.clipboard.writeText(value);
+          button.textContent = "✓";
+          button.setAttribute("aria-label", "Copied");
+          window.setTimeout(() => {
+            button.textContent = previous;
+            button.setAttribute("aria-label", previousLabel ?? "Copy");
+          }, 1200);
+        } catch {
+          button.textContent = "!";
+          button.setAttribute("aria-label", "Copy failed");
+        }
+      };
+
+      document.querySelectorAll("[data-tabs]").forEach((group, groupIndex) => {
+        const tabs = [...group.querySelectorAll("[data-tab]")];
+        const panels = [...group.querySelectorAll("[data-panel]")];
+
+        const activate = (tab, focus = false) => {
+          tabs.forEach((candidate) => {
+            const selected = candidate === tab;
+            candidate.setAttribute("aria-selected", String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+          });
+          panels.forEach((panel) => {
+            panel.hidden = panel.dataset.panel !== tab.dataset.tab;
+          });
+          if (focus) tab.focus();
+        };
+
+        tabs.forEach((tab, tabIndex) => {
+          const panel = panels.find(
+            (candidate) => candidate.dataset.panel === tab.dataset.tab,
+          );
+          const baseId = `tabs-${groupIndex}-${tab.dataset.tab}`;
+          tab.id = `${baseId}-tab`;
+          tab.setAttribute("aria-controls", `${baseId}-panel`);
+          tab.tabIndex = tab.getAttribute("aria-selected") === "true" ? 0 : -1;
+
+          if (panel) {
+            panel.id = `${baseId}-panel`;
+            panel.setAttribute("aria-labelledby", tab.id);
+          }
+
+          tab.addEventListener("click", () => activate(tab));
+          tab.addEventListener("keydown", (event) => {
+            let nextIndex;
+            if (event.key === "ArrowRight") nextIndex = (tabIndex + 1) % tabs.length;
+            if (event.key === "ArrowLeft") {
+              nextIndex = (tabIndex - 1 + tabs.length) % tabs.length;
+            }
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = tabs.length - 1;
+            if (nextIndex === undefined) return;
+            event.preventDefault();
+            activate(tabs[nextIndex], true);
+          });
+        });
+      });
+
+      document.querySelectorAll("[data-copy]").forEach((button) => {
+        button.setAttribute("aria-live", "polite");
+        button.addEventListener("click", () => {
+          copy(button.dataset.copy, button);
+        });
+      });
+
+      document.querySelectorAll("[data-copy-panel]").forEach((button) => {
+        button.setAttribute("aria-live", "polite");
+        button.addEventListener("click", () => {
+          const shell = button.closest(".tab-shell");
+          const panel = [...shell.querySelectorAll(".code-panel")].find(
+            (candidate) => !candidate.hidden,
+          );
+          copy(panel?.innerText ?? "", button);
+        });
+      });
+
+      const sections = [...document.querySelectorAll("main section[id]")];
+      const trackedLinks = [
+        ...document.querySelectorAll(".toc a, .sidebar a"),
+      ];
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+          if (!visible) return;
+
+          trackedLinks.forEach((link) => {
+            link.classList.toggle(
+              "active",
+              link.hash === `#${visible.target.id}`,
+            );
+          });
+        },
+        { rootMargin: "-20% 0px -65% 0px", threshold: [0, 0.2, 0.6] },
+      );
+      sections.forEach((section) => observer.observe(section));
+    </script>
+  </body>
+</html>

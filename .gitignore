@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+site/node_modules/
+
+# Build output
+dist/
+site/dist/
+site/.next/
+site/.vinext/
+site/.wrangler/
+
+# Generated deployment mirrors
+site/public/landing.html
+site/public/og.png
+
+# Local tooling and caches
+.remember/
+coverage/
+*.tgz
+*.log
+.DS_Store
+
+# Local environment
+.env
+.env.*
+!.env.example
