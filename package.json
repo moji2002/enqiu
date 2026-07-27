@@ -42,8 +42,19 @@
     "typescript",
     "in-memory"
   ],
-  "author": "Enqiu",
+  "author": "Mojtaba Beheshti <moji2002@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moji2002/enqiu.git"
+  },
+  "homepage": "https://github.com/moji2002/enqiu#readme",
+  "bugs": {
+    "url": "https://github.com/moji2002/enqiu/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
