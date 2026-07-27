@@ -1,0 +1,3 @@
+# Vercel project metadata and local authentication
+.vercel/
+.env*
