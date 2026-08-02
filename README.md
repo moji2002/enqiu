@@ -1,10 +1,22 @@
 # Enqiu
 
+[![npm](https://img.shields.io/npm/v/enqiu?style=flat-square)](https://www.npmjs.com/package/enqiu)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-1f6f43?style=flat-square)](https://nodejs.org/)
+[![runtime dependencies](https://img.shields.io/badge/runtime_deps-0-f05a28?style=flat-square)](package.json)
+[![license](https://img.shields.io/npm/l/enqiu?style=flat-square)](LICENSE)
+
 A small, type-safe job queue for Node.js and Bun. Start in memory, move to
 Redis without changing your job API.
 
+[Live overview](https://enqiu.worksonmy.dev) ·
+[npm](https://www.npmjs.com/package/enqiu) ·
+[Project notes](https://worksonmy.dev/projects/enqiu) ·
+[Issues](https://github.com/moji2002/enqiu/issues)
+
 ```bash
-pnpm add enqiu
+npm install enqiu
+# or: pnpm add enqiu
+# or: bun add enqiu
 ```
 
 Enqiu has no runtime dependencies. Redis, schema, Hono, and telemetry packages
@@ -16,27 +28,16 @@ Define each job once, then call it like a function. The name, input, and result
 types are inferred.
 
 ```ts
-import { enqiu, job } from "enqiu";
-import { z } from "zod";
+import { enqiu } from "enqiu";
 
 const jobs = enqiu({
-  sendEmail: job({
-    input: z.object({
-      to: z.email(),
-      subject: z.string(),
-    }),
-    run: async (email, { signal, log }) => {
-      log.info("Sending email", { to: email.to });
-
-      const response = await fetch("https://example.com/email", {
-        method: "POST",
-        body: JSON.stringify(email),
-        signal,
-      });
-
-      return { delivered: response.ok };
-    },
-  }),
+  sendEmail: async (
+    email: { to: string; subject: string },
+    { log },
+  ) => {
+    log.info("Sending email", { to: email.to });
+    return { delivered: true, subject: email.subject };
+  },
 });
 
 const delivery = await jobs.sendEmail({
@@ -46,6 +47,7 @@ const delivery = await jobs.sendEmail({
 
 const result = await delivery.result;
 console.log(result.delivered);
+await jobs.worker.close();
 ```
 
 `await jobs.sendEmail(input)` waits until the queue accepts the job and returns
@@ -281,6 +283,18 @@ await jobs.worker.close();
 - Current stable Bun
 - Memory and Redis drivers
 - ESM and TypeScript declarations
+
+## Operational boundaries
+
+- The memory driver is process-local and non-durable; use it for local work,
+  tests, and jobs that may disappear with the process.
+- Redis mode needs an existing compatible Redis client. Enqiu does not own that
+  client's connection lifecycle.
+- Job inputs and results must be JSON-safe. Functions, streams, class instances,
+  sparse arrays, and `undefined` fields are not portable queue data.
+- Retries and worker recovery can run a job more than once. Make external side
+  effects idempotent when duplicate execution would be harmful.
+- Enqiu coordinates jobs; it is not a distributed transaction coordinator.
 
 ## License
 
