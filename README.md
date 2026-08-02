@@ -63,6 +63,48 @@ const jobs = enqiu({
 });
 ```
 
+## Testing in your project
+
+Create a fresh queue for each test so workers and queued state never leak
+between cases. This Vitest example uses the in-memory driver, awaits the public
+job handle, checks the persisted status, and always closes the worker:
+
+```ts
+import { afterEach, describe, expect, it } from "vitest";
+import { createJobs } from "./jobs.js";
+
+let jobs: ReturnType<typeof createJobs> | undefined;
+
+afterEach(async () => {
+  await jobs?.worker.close();
+  jobs = undefined;
+});
+
+describe("email jobs", () => {
+  it("returns and stores the handler result", async () => {
+    jobs = createJobs();
+    const handle = await jobs.sendWelcome({ name: "Ada" });
+
+    await expect(handle.result).resolves.toEqual({ subject: "Welcome, Ada" });
+    expect((await handle.refresh()).status).toBe("succeeded");
+  });
+});
+```
+
+Install and run it with:
+
+```bash
+pnpm add enqiu
+pnpm add -D vitest
+pnpm vitest run
+```
+
+The repository keeps the complete, runnable
+[memory and opt-in Redis examples](https://github.com/moji2002/enqiu/tree/main/examples/testing).
+The Redis test runs only when `ENQIU_TEST_REDIS_URL` is set, uses a unique
+namespace instead of flushing the database, and closes the worker before the
+injected Redis client.
+
 ## Redis
 
 Inject an existing client; Enqiu does not create connections or install a Redis

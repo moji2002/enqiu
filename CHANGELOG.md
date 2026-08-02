@@ -3,7 +3,22 @@
 All notable changes to this project are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [0.1.2] - 2026-08-02
+
+### Added
+
+- Added runnable Vitest consumer examples for the in-memory driver and an
+  opt-in Redis integration using isolated namespaces and deterministic cleanup.
+- Added `pnpm test:example` and README guidance for testing application jobs
+  through Enqiu's public API.
+
+## [0.1.1] - 2026-08-02
+
+### Changed
+
+- Updated the package contact email to `it@worksonmy.dev`.
+
+## [0.1.0] - 2026-07-27
 
 ### Changed
 

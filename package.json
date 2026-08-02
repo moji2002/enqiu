@@ -1,6 +1,6 @@
 {
   "name": "enqiu",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A type-safe job queue for Node.js and Bun with memory and Redis drivers",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test": "vitest run",
+    "test:example": "pnpm run build && vitest run examples/testing",
     "test:watch": "vitest",
     "check": "pnpm run typecheck && pnpm run typecheck:test && pnpm run test && pnpm run build",
     "prepack": "pnpm run check"
