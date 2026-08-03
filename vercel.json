@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --prefix site run sync:landing",
+  "outputDirectory": "site/public",
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/landing.html"
+    }
+  ]
+}
