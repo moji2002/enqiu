@@ -3,14 +3,25 @@
   "installCommand": "pnpm install --frozen-lockfile && npm --prefix site ci",
   "buildCommand": "npm --prefix site run build:landing",
   "outputDirectory": "site/public",
-  "rewrites": [
+  "routes": [
     {
-      "source": "/playground",
-      "destination": "/playground/index.html"
+      "src": "^/admin/?$",
+      "status": 404
     },
     {
-      "source": "/",
-      "destination": "/index.html"
+      "handle": "filesystem"
+    },
+    {
+      "src": "^/playground/?$",
+      "dest": "/playground/index.html"
+    },
+    {
+      "src": "^/$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/.*$",
+      "status": 404
     }
   ]
 }

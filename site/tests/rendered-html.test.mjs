@@ -115,6 +115,7 @@ test("keeps one landing source and removes starter-only assets", async () => {
     deployedLanding,
     packageJson,
     worker,
+    vercelJson,
   ] =
     await Promise.all([
       readFile(new URL("../../docs/index.html", import.meta.url), "utf8"),
@@ -122,7 +123,9 @@ test("keeps one landing source and removes starter-only assets", async () => {
       readFile(new URL("../public/index.html", import.meta.url), "utf8"),
       readFile(new URL("../package.json", import.meta.url), "utf8"),
       readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
+      readFile(new URL("../../vercel.json", import.meta.url), "utf8"),
     ]);
+  const vercel = JSON.parse(vercelJson);
 
   assert.match(landingEntry, /id="root"/);
   assert.match(landingEntry, /src="\/landing\.tsx"/);
@@ -133,6 +136,9 @@ test("keeps one landing source and removes starter-only assets", async () => {
   assert.match(packageJson, /"build:landing"/);
   assert.match(worker, /"\/index\.html"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  assert.deepEqual(vercel.routes[0], { src: "^/admin/?$", status: 404 });
+  assert.deepEqual(vercel.routes.at(-1), { src: "^/.*$", status: 404 });
+  assert.equal(vercel.rewrites, undefined);
 
   await access(new URL("../public/enqiu/index.js", import.meta.url));
 
