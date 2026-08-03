@@ -22,7 +22,6 @@ export default defineConfig({
       { find: /^react$/, replacement: `${siteModules}react/index.js` },
       { find: /^react\/jsx-runtime$/, replacement: `${siteModules}react/jsx-runtime.js` },
       { find: /^react-dom\/client$/, replacement: `${siteModules}react-dom/client.js` },
-      { find: /^motion\/react$/, replacement: `${siteModules}motion/dist/es/react.mjs` },
     ],
   },
   build: {

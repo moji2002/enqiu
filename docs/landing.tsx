@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { motion, useReducedMotion } from "motion/react";
 import { BeUiButton } from "../site/playground/components/beui/button";
-import { SpatialQueue, type SpatialToken } from "../site/playground/components/spatial-queue";
+import { QueueFlow, type FlowToken } from "../site/playground/components/queue-flow";
 import { cn } from "../site/playground/lib/utils";
 import { useLandingQueue } from "./use-landing-queue";
 import "../site/tailwind.css";
@@ -31,7 +30,6 @@ function CopyCommand({ light = false }: { light?: boolean }) {
           : "border-white/15 bg-white/5 text-white hover:bg-white/10 dark:border-white/15 dark:bg-white/5 dark:text-white",
       )}
       type="button"
-      ripple
       onClick={() => void copy()}
     >
       <span>{command}</span>
@@ -46,8 +44,8 @@ function Arrow() {
 
 function LiveHero() {
   const [state, actions] = useLandingQueue();
-  const tokens = useMemo<SpatialToken[]>(() => {
-    const active: SpatialToken = {
+  const tokens = useMemo<FlowToken[]>(() => {
+    const active: FlowToken = {
       id: "send-email",
       label: "sendEmail()",
       status:
@@ -74,18 +72,16 @@ function LiveHero() {
 
   return (
     <div className="relative mx-auto mt-10 w-full max-w-[1160px] sm:mt-14">
-      <SpatialQueue
-        className="min-h-[510px] border-white/15 sm:min-h-[640px]"
+      <QueueFlow
+        className="border-white/15"
         tokens={tokens}
         queued={state.phase === "queued" ? 1 : 0}
         running={state.phase === "working" ? 1 : 0}
         concurrency={2}
       />
 
-      <motion.div
-        className="absolute inset-x-4 bottom-16 z-40 mx-auto max-w-xl rounded-2xl border border-white/10 bg-black/65 p-3 shadow-2xl shadow-black/50 backdrop-blur-xl sm:inset-x-auto sm:bottom-7 sm:left-7 sm:w-[390px] sm:p-4"
-        layout
-      >
+      <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">Actual Enqiu · memory driver</p>
@@ -94,20 +90,20 @@ function LiveHero() {
           <span className="font-mono text-xs tabular-nums text-cyan-300">{state.progress}%</span>
         </div>
         <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
-          <motion.i className="block h-full rounded-full bg-gradient-to-r from-violet-400 via-sky-400 to-emerald-300" animate={{ width: `${state.progress}%` }} />
+          <i className="block h-full rounded-full bg-gradient-to-r from-violet-400 via-sky-400 to-emerald-300 transition-[width] duration-200" style={{ width: `${state.progress}%` }} />
         </div>
         <output className="mt-2 block truncate font-mono text-[10px] text-white/45" aria-live="polite">{state.result}</output>
         <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-          <BeUiButton className="rounded-full border-white bg-white text-black hover:bg-neutral-200 dark:border-white dark:bg-white dark:text-black" disabled={state.running} type="button" ripple variant="primary" onClick={() => void actions.run().catch(() => undefined)}>{runLabel}</BeUiButton>
+          <BeUiButton className="rounded-full border-white bg-white text-black hover:bg-neutral-200 dark:border-white dark:bg-white dark:text-black" disabled={state.running} type="button" variant="primary" onClick={() => void actions.run().catch(() => undefined)}>{runLabel}</BeUiButton>
           <BeUiButton className="rounded-full border-white/15 bg-transparent text-white hover:bg-white/10 dark:border-white/15 dark:bg-transparent dark:text-white" type="button" onClick={() => void actions.reset().catch(() => undefined)}>Reset</BeUiButton>
         </div>
-      </motion.div>
-
-      <div className="absolute right-7 top-7 hidden w-52 rounded-2xl border border-white/10 bg-black/40 p-4 font-mono text-[10px] leading-5 text-white/55 backdrop-blur-xl sm:block">
-        <span className="text-violet-300">queue.sendEmail</span>({`{`} to {`}`})
-        <br />↓ typed JobHandle
-        <br />↓ retryable execution
-        <br /><span className="text-emerald-300">result: Promise&lt;Output&gt;</span>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 font-mono text-[10px] leading-5 text-white/55">
+          <span className="text-violet-300">queue.sendEmail</span>({`{`} to {`}`})
+          <br />↓ typed JobHandle
+          <br />↓ retryable execution
+          <br /><span className="text-emerald-300">result: Promise&lt;Output&gt;</span>
+        </div>
       </div>
     </div>
   );
@@ -140,7 +136,6 @@ function CodeWindow() {
 }
 
 export function LandingApp() {
-  const reduceMotion = useReducedMotion();
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f7f7f4] font-sans text-neutral-950 antialiased selection:bg-violet-200">
       <a className="fixed left-3 top-3 z-[100] -translate-y-24 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-transform focus:translate-y-0" href="#content">Skip to content</a>
@@ -157,14 +152,14 @@ export function LandingApp() {
 
         <main id="content">
           <section className="relative mx-auto max-w-[1380px] px-5 pb-16 pt-12 sm:px-8 sm:pb-24 sm:pt-20" id="top">
-            <motion.div initial={reduceMotion ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
+            <div>
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-violet-300">Typed background jobs · frontend included</p>
               <h1 className="mt-6 max-w-5xl text-[clamp(3.5rem,9vw,8.5rem)] font-semibold leading-[0.82] tracking-[-0.075em]">Make work<br /><span className="text-white/38">move.</span></h1>
               <div className="mt-8 grid max-w-5xl gap-8 sm:grid-cols-[minmax(0,520px)_auto] sm:items-end">
                 <p className="text-lg leading-8 text-white/58 sm:text-xl">Enqiu turns typed functions into observable jobs—with retries, schedules, progress, cancellation, and drivers for the browser or server.</p>
                 <div className="flex flex-wrap gap-3 sm:justify-end"><CopyCommand /></div>
               </div>
-            </motion.div>
+            </div>
             <LiveHero />
           </section>
         </main>

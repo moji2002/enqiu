@@ -1,13 +1,12 @@
 import { Component, useCallback, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { JobSnapshot } from "enqiu";
 import { BeUiButton } from "./components/beui/button";
 import { NumberTicker } from "./components/beui/number-ticker";
 import { JobComposer } from "./components/job-composer";
 import { JobInspector } from "./components/job-inspector";
 import { QueueToolbar } from "./components/queue-toolbar";
-import { SpatialQueue, type SpatialToken } from "./components/spatial-queue";
+import { QueueFlow, type FlowToken } from "./components/queue-flow";
 import { formatRelative, shortId, statusLabel } from "./format";
 import { cn } from "./lib/utils";
 import { defaultDraft } from "./queue";
@@ -81,10 +80,9 @@ function PlaygroundApp() {
   const [state, actions] = usePlaygroundQueue();
   const [draft, setDraft] = useState<ComposerDraft>(defaultDraft);
   const [panel, setPanel] = useState<SidePanel>(null);
-  const reduceMotion = useReducedMotion();
   const selectedJob = state.jobs.find((job) => job.id === state.selectedId);
 
-  const tokens = useMemo<SpatialToken[]>(() => state.jobs.slice(0, 8).map((job) => ({ id: job.id, label: `${job.name}()`, status: job.status })), [state.jobs]);
+  const tokens = useMemo<FlowToken[]>(() => state.jobs.slice(0, 12).map((job) => ({ id: job.id, label: `${job.name}()`, status: job.status })), [state.jobs]);
 
   const select = useCallback((id: string) => {
     actions.select(id);
@@ -111,7 +109,7 @@ function PlaygroundApp() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f5f5f2] font-sans text-neutral-950 antialiased selection:bg-violet-200">
       <a className="fixed left-3 top-3 z-[100] -translate-y-24 rounded-full bg-black px-4 py-2 text-sm text-white transition-transform focus:translate-y-0" href="#queue-field">Skip to queue</a>
-      <header className="relative z-50 flex min-h-[72px] items-center gap-3 border-b border-neutral-200 bg-[#f5f5f2]/90 px-4 backdrop-blur-xl sm:px-6">
+      <header className="relative z-50 flex min-h-[72px] items-center gap-3 border-b border-neutral-200 bg-[#f5f5f2] px-4 sm:px-6">
         <a href="/" className="text-xl font-semibold tracking-[-0.055em]" aria-label="Enqiu home">enqiu<span className="text-violet-600">/</span></a>
         <span className="h-5 w-px bg-neutral-200" />
         <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-medium">Queue field</h1><p className="truncate font-mono text-[9px] uppercase tracking-wider text-neutral-400">Real browser memory driver</p></div>
@@ -134,8 +132,8 @@ function PlaygroundApp() {
         </aside>
 
         <section className="relative order-1 min-h-[620px] lg:order-2 lg:h-[calc(100vh-96px)]" aria-labelledby="field-title">
-          <h2 className="sr-only" id="field-title">Live spatial queue</h2>
-          <SpatialQueue
+          <h2 className="sr-only" id="field-title">Live execution queue</h2>
+          <QueueFlow
             className="h-full min-h-[620px]"
             tokens={tokens}
             queued={state.stats.queued + state.stats.scheduled}
@@ -145,7 +143,7 @@ function PlaygroundApp() {
             onSelect={select}
           />
 
-          <div className="absolute inset-x-3 bottom-3 z-40 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/60 p-2 text-white shadow-2xl backdrop-blur-xl sm:inset-x-auto sm:left-4 sm:bottom-4">
+          <div className="absolute inset-x-3 bottom-3 z-40 flex items-center gap-2 rounded-2xl border border-white/10 bg-black p-2 text-white shadow-xl sm:inset-x-auto sm:left-4 sm:bottom-4">
             <BeUiButton className="flex-1 rounded-full border-white bg-white text-black hover:bg-neutral-200 sm:flex-none dark:border-white dark:bg-white dark:text-black" variant="primary" type="button" onClick={() => setPanel("compose")}>Launch a job</BeUiButton>
             <button className="min-h-10 rounded-full px-3 font-mono text-[10px] text-white/55 transition-colors hover:bg-white/10 hover:text-white" type="button" onClick={() => void actions.enqueueScenario("queue-three", draft).catch(() => undefined)}>Queue three</button>
             <button className="hidden min-h-10 rounded-full px-3 font-mono text-[10px] text-white/55 transition-colors hover:bg-white/10 hover:text-white sm:block" type="button" onClick={() => void actions.enqueueScenario("fail-once", draft).catch(() => undefined)}>Retry scenario</button>
@@ -153,19 +151,14 @@ function PlaygroundApp() {
         </section>
       </main>
 
-      <AnimatePresence>
-        {panel ? (
+      {panel ? (
           <>
-            <motion.button className="fixed inset-0 z-[74] bg-black/35 backdrop-blur-[2px]" aria-label="Close side panel" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPanel(null)} />
-            <motion.aside
+            <button className="fixed inset-0 z-[74] bg-black/30" type="button" aria-label="Close side panel" onClick={() => setPanel(null)} />
+            <aside
               className="fixed inset-y-0 right-0 z-[75] w-full max-w-[430px] overflow-y-auto border-l border-neutral-200 bg-[#f5f5f2] p-3 shadow-2xl"
               role="dialog"
               aria-modal="true"
               aria-label={panel === "compose" ? "Compose a job" : "Inspect selected job"}
-              initial={reduceMotion ? { opacity: 0 } : { x: "100%" }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={reduceMotion ? { opacity: 0 } : { x: "100%" }}
-              transition={{ type: "spring", stiffness: 340, damping: 34 }}
             >
               <button className="sticky top-2 z-10 ml-auto mb-2 grid size-10 place-items-center rounded-full border border-neutral-200 bg-white text-lg shadow-sm hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-violet-500" type="button" aria-label="Close panel" onClick={() => setPanel(null)}>×</button>
               {panel === "compose" ? (
@@ -173,10 +166,9 @@ function PlaygroundApp() {
               ) : (
                 <JobInspector job={selectedJob} actions={workbenchActions} onEditDraft={editDraft} onClose={() => setPanel(null)} />
               )}
-            </motion.aside>
+            </aside>
           </>
         ) : null}
-      </AnimatePresence>
 
       <div className="sr-only" aria-live="polite" aria-atomic="true">{state.stats.running} running, {state.stats.queued} queued, {state.stats.failed} failed.</div>
     </div>

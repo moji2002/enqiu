@@ -69,7 +69,8 @@ test("runs the React landing preview with the actual Enqiu browser module", asyn
   assert.match(source, /queue\.on\("progress"/);
   assert.match(source, /queue\.on\("succeeded"/);
   assert.match(landingSource, /createRoot\(/);
-  assert.match(landingSource, /SpatialQueue/);
+  assert.match(landingSource, /QueueFlow/);
+  assert.doesNotMatch(landingSource, /SpatialQueue|motion\/react|repeat:\s*Infinity|preserve-3d/);
   assert.match(landingSource, /Make work/);
   assert.match(landingSource, /Use it in the frontend/);
   assert.match(landingSource, /pnpm add enqiu/);
@@ -95,12 +96,13 @@ test("ships a React playground backed by Enqiu queue state", async () => {
   assert.match(queueSource, /createPlaygroundQueue/);
   assert.match(queueSource, /reportProgress/);
   assert.match(source, /createRoot\(/);
-  assert.match(source, /SpatialQueue/);
+  assert.match(source, /QueueFlow/);
+  assert.doesNotMatch(source, /SpatialQueue|motion\/react|repeat:\s*Infinity|preserve-3d/);
   assert.match(source, /JobComposer/);
   assert.match(source, /JobInspector/);
-  assert.match(source, /AnimatePresence/);
+  assert.doesNotMatch(source, /AnimatePresence/);
   assert.match(canvasSource, /NumberTicker/);
-  assert.equal(JSON.parse(sitePackage).dependencies.motion, "^12.43.0");
+  assert.equal(JSON.parse(sitePackage).dependencies.motion, undefined);
   assert.match(playgroundHtml, /id="root"/);
   assert.match(playgroundHtml, /\/playground\/playground\.js/);
   assert.equal(response.status, 200);
