@@ -10,7 +10,6 @@ const result = spawnSync(
     "site/eslint.config.mjs",
     "site",
     "docs/landing.tsx",
-    "docs/use-landing-queue.ts",
     "--ignore-pattern",
     "site/dist",
     "--ignore-pattern",

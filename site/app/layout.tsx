@@ -18,27 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     metadataBase,
-    openGraph: {
-      title: "Enqiu — Queues without ceremony",
-      description:
-        "Type-safe background jobs for browsers, Node.js, and Bun, with memory and Redis drivers.",
-      type: "website",
-      images: [
-        {
-          url: "/og.png",
-          width: 1733,
-          height: 907,
-          alt: "Enqiu — Queues without ceremony",
-        },
-      ],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: "Enqiu — Queues without ceremony",
-      description:
-        "Type-safe background jobs for browsers, Node.js, and Bun, with memory and Redis drivers.",
-      images: ["/og.png"],
-    },
+    openGraph: { title, description, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 

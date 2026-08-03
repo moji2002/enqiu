@@ -42,16 +42,6 @@ const worker = {
       }
     }
 
-    if (url.pathname === "/playground" || url.pathname === "/playground/") {
-      const playgroundUrl = new URL("/playground/index.html", request.url);
-      const playground = await env.ASSETS.fetch(
-        new Request(playgroundUrl, { headers: request.headers }),
-      );
-      if (playground.ok) {
-        return playground;
-      }
-    }
-
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       return handleImageOptimization(request, {

@@ -5,15 +5,7 @@
   "outputDirectory": "site/public",
   "routes": [
     {
-      "src": "^/admin/?$",
-      "status": 404
-    },
-    {
       "handle": "filesystem"
-    },
-    {
-      "src": "^/playground/?$",
-      "dest": "/playground/index.html"
     },
     {
       "src": "^/$",
