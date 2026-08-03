@@ -2,6 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { defaultDraft, RECIPES, recipeFor } from "../queue";
 import type { ComposerDraft, RecipeId } from "../types";
 import { JsonEditor } from "./json-editor";
+import { BeUiButton } from "./beui/button";
+import { BeUiCheckbox } from "./beui/checkbox";
+import { BeUiInput } from "./beui/input";
+import {
+  Panel,
+  PanelHeader,
+  fieldClass,
+  fieldLabelClass,
+  monoLabelClass,
+} from "./ui/layout";
 
 const STORAGE_KEY = "enqiu.playground.composer.v1";
 
@@ -111,37 +121,34 @@ export function JobComposer({
   const currentRecipe = recipeFor(draft.recipe);
 
   return (
-    <section className="composer" aria-labelledby="composer-title">
-      <div className="section-heading">
-        <div>
-          <h2 id="composer-title">Compose</h2>
-          <p>Choose a handler, adjust its input, enqueue.</p>
-        </div>
-        <span className="step-mark">01</span>
-      </div>
+    <Panel className="h-full overflow-hidden" aria-labelledby="composer-title">
+      <PanelHeader number="01" title="Compose" description="Choose a handler, edit the input, then enqueue." />
 
-      <fieldset className="recipe-picker">
-        <legend>Job recipe</legend>
+      <div className="space-y-4 p-4">
+      <fieldset>
+        <legend className={monoLabelClass}>Job handler</legend>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3 md:grid-cols-1">
         {RECIPES.map((recipe) => (
           <button
             key={recipe.id}
             type="button"
-            className="recipe-option"
+            className="group flex min-h-14 min-w-0 items-center gap-3 rounded-lg border border-neutral-200 p-2.5 text-left transition duration-200 hover:border-neutral-400 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 aria-pressed:border-black aria-pressed:bg-neutral-950 aria-pressed:text-white dark:border-neutral-800 dark:hover:border-neutral-600 dark:hover:bg-neutral-900 dark:aria-pressed:border-white dark:aria-pressed:bg-white dark:aria-pressed:text-black"
             aria-pressed={draft.recipe === recipe.id}
             onClick={() => chooseRecipe(recipe.id)}
           >
-            <span className="recipe-glyph" aria-hidden="true">
+            <span className="grid size-8 shrink-0 place-items-center rounded-md border border-current/15 bg-neutral-100 font-mono text-xs font-semibold text-neutral-600 group-aria-pressed:bg-white/10 group-aria-pressed:text-current dark:bg-neutral-900">
               {recipe.id.slice(0, 1)}
             </span>
-            <span>
-              <strong>{recipe.id}()</strong>
-              <small>{recipe.capability}</small>
+            <span className="min-w-0">
+              <strong className="block truncate font-mono text-xs font-medium">{recipe.id}()</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-neutral-500 group-aria-pressed:text-neutral-400 dark:group-aria-pressed:text-neutral-600">{recipe.capability}</small>
             </span>
           </button>
         ))}
+        </div>
       </fieldset>
 
-      <p className="recipe-description">{currentRecipe.description}</p>
+      <p className="text-sm leading-5 text-neutral-500 dark:text-neutral-400">{currentRecipe.description}</p>
 
       <JsonEditor
         ref={editor}
@@ -154,10 +161,11 @@ export function JobComposer({
         }}
       />
 
-      <div className="common-options">
+      <div className="grid grid-cols-2 gap-3">
         <label>
-          <span>Priority</span>
+          <span className={fieldLabelClass}>Priority</span>
           <select
+            className={fieldClass}
             name="priority"
             value={draft.priority}
             autoComplete="off"
@@ -171,8 +179,9 @@ export function JobComposer({
           </select>
         </label>
         <label>
-          <span>Delay</span>
+          <span className={fieldLabelClass}>Delay</span>
           <select
+            className={fieldClass}
             name="delay"
             value={draft.delayMs}
             autoComplete="off"
@@ -187,12 +196,13 @@ export function JobComposer({
         </label>
       </div>
 
-      <details className="advanced-options">
-        <summary>Advanced options</summary>
-        <div className="advanced-grid">
+      <details className="rounded-lg border border-neutral-200 open:bg-neutral-50 dark:border-neutral-800 dark:open:bg-neutral-900/40">
+        <summary className="flex min-h-11 list-none items-center justify-between px-3 text-sm font-medium after:text-neutral-400 after:content-['+'] hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-blue-500 group-open:after:content-['−'] dark:hover:bg-neutral-900">Advanced options</summary>
+        <div className="grid grid-cols-2 gap-3 border-t border-neutral-200 p-3 dark:border-neutral-800">
           <label>
-            <span>Attempts</span>
+            <span className={fieldLabelClass}>Attempts</span>
             <select
+              className={fieldClass}
               name="attempts"
               value={draft.retryAttempts}
               autoComplete="off"
@@ -208,9 +218,9 @@ export function JobComposer({
               <option value={3}>3</option>
             </select>
           </label>
-          <label>
-            <span>Timeout (ms)</span>
-            <input
+          <div>
+            <BeUiInput
+              label="Timeout (ms)"
               type="number"
               name="timeout"
               min={1}
@@ -218,17 +228,17 @@ export function JobComposer({
               autoComplete="off"
               placeholder="No limit…"
               value={draft.timeoutMs ?? ""}
-              onChange={(event) =>
+              onValueChange={(value) =>
                 update(
                   "timeoutMs",
-                  event.target.value ? Number(event.target.value) : undefined,
+                  value ? Number(value) : undefined,
                 )
               }
             />
-          </label>
-          <label>
-            <span>Expires in (ms)</span>
-            <input
+          </div>
+          <div>
+            <BeUiInput
+              label="Expires in (ms)"
               type="number"
               name="expiry"
               min={1}
@@ -236,77 +246,72 @@ export function JobComposer({
               autoComplete="off"
               placeholder="Never…"
               value={draft.expiresInMs ?? ""}
-              onChange={(event) =>
+              onValueChange={(value) =>
                 update(
                   "expiresInMs",
-                  event.target.value ? Number(event.target.value) : undefined,
+                  value ? Number(value) : undefined,
                 )
               }
             />
-          </label>
-          <label>
-            <span>Custom ID</span>
-            <input
+          </div>
+          <div>
+            <BeUiInput
+              label="Custom ID"
               type="text"
               name="custom-id"
               autoComplete="off"
               spellCheck={false}
               placeholder="Auto-generated…"
               value={draft.customId ?? ""}
-              onChange={(event) => update("customId", event.target.value || undefined)}
+              onValueChange={(value) => update("customId", value || undefined)}
             />
-          </label>
-          <label className="wide-field">
-            <span>Idempotency key</span>
-            <input
+          </div>
+          <div className="col-span-2">
+            <BeUiInput
+              label="Idempotency key"
               type="text"
               name="idempotency-key"
               autoComplete="off"
               spellCheck={false}
               placeholder="Optional single-flight key…"
               value={draft.idempotencyKey ?? ""}
-              onChange={(event) =>
-                update("idempotencyKey", event.target.value || undefined)
+              onValueChange={(value) =>
+                update("idempotencyKey", value || undefined)
               }
             />
-          </label>
+          </div>
           {currentRecipe.supportsFailure ? (
-            <label className="check-field wide-field">
-              <input
-                type="checkbox"
-                checked={draft.failOnce}
-                onChange={(event) => update("failOnce", event.target.checked)}
-              />
-              <span>Fail once, then retry</span>
-            </label>
+            <BeUiCheckbox className="col-span-2 rounded-md border border-neutral-200 px-3 dark:border-neutral-800" checked={draft.failOnce} onCheckedChange={(checked) => update("failOnce", checked)} label="Fail once, then retry" />
           ) : null}
         </div>
       </details>
 
-      <button
-        className="enqueue-primary"
+      <BeUiButton
+        variant="primary"
+        className="w-full justify-between px-4"
         type="button"
         disabled={busyAction === "enqueue"}
         onClick={() => void submit()}
       >
         <span>{busyAction === "enqueue" ? "Queueing…" : "Enqueue job"}</span>
-        <kbd aria-hidden="true">Ctrl/⌘ ↵</kbd>
-      </button>
+        <kbd className="rounded border border-white/20 px-1.5 py-0.5 font-mono text-[10px] font-normal text-neutral-300 dark:border-black/20 dark:text-neutral-600" aria-hidden="true">Ctrl/⌘ ↵</kbd>
+      </BeUiButton>
 
-      <div className="scenario-row" aria-label="Queue scenarios">
-        <span>Try a behavior</span>
-        <div>
-          <button type="button" disabled={busyAction === "queue-three"} onClick={() => void runScenario("queue-three")}>
+      <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800" aria-label="Queue scenarios">
+        <span className={monoLabelClass}>Try queue behavior</span>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <BeUiButton className="min-w-0 px-2 text-xs" type="button" disabled={busyAction === "queue-three"} onClick={() => void runScenario("queue-three")}>
             {busyAction === "queue-three" ? "Queueing…" : "Queue three"}
-          </button>
-          <button type="button" disabled={busyAction === "fail-once"} onClick={() => void runScenario("fail-once")}>
+          </BeUiButton>
+          <BeUiButton className="min-w-0 px-2 text-xs" type="button" disabled={busyAction === "fail-once"} onClick={() => void runScenario("fail-once")}>
             {busyAction === "fail-once" ? "Queueing…" : "Fail once"}
-          </button>
-          <button type="button" disabled={busyAction === "schedule-five"} onClick={() => void runScenario("schedule-five")}>
+          </BeUiButton>
+          <BeUiButton className="min-w-0 px-2 text-xs" type="button" disabled={busyAction === "schedule-five"} onClick={() => void runScenario("schedule-five")}>
             {busyAction === "schedule-five" ? "Scheduling…" : "Schedule +5s"}
-          </button>
+          </BeUiButton>
         </div>
       </div>
-    </section>
+      </div>
+    </Panel>
   );
 }

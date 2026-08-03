@@ -9,9 +9,9 @@ export function NumberTicker({ value }: { value: number }) {
   const text = Math.max(0, Math.round(value)).toString();
 
   return (
-    <span className="beui-number-ticker">
+    <span className="inline-flex items-center tabular-nums">
       <span className="sr-only">{text}</span>
-      <span aria-hidden="true" className="beui-number-glyphs">
+      <span aria-hidden="true" className="inline-flex items-center tabular-nums">
         {text.split("").map((character, index, characters) => (
           <Digit
             key={`place-${characters.length - index}`}
@@ -28,7 +28,7 @@ function Digit({ digit }: { digit: number }) {
 
   return (
     <span
-      className="beui-number-digit"
+      className="relative inline-block overflow-hidden"
       style={{ height: `${DIGIT_HEIGHT_EM}em`, width: "1ch" }}
     >
       <motion.span
@@ -39,7 +39,7 @@ function Digit({ digit }: { digit: number }) {
             ? { duration: 0 }
             : { duration: 0.48, ease: EASE_OUT }
         }
-        className="beui-number-column"
+        className="absolute inset-x-0 top-0 flex flex-col items-center will-change-transform [&>span]:flex [&>span]:h-[1.1em] [&>span]:items-center [&>span]:justify-center [&>span]:leading-none"
       >
         {DIGITS.map((value) => <span key={value}>{value}</span>)}
       </motion.span>

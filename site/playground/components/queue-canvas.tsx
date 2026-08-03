@@ -6,7 +6,11 @@ import type {
   QueueFilter,
 } from "../types";
 import { NumberTicker } from "./beui/number-ticker";
+import { BeUiButton } from "./beui/button";
 import { JobRow } from "./job-row";
+import { BeUiInput } from "./beui/input";
+import { cn } from "../lib/utils";
+import { EmptyState, Panel, PanelHeader } from "./ui/layout";
 
 const ACTIVE = new Set<JobStatus>(["queued", "scheduled", "running"]);
 const STOPPED = new Set<JobStatus>(["cancelled", "expired"]);
@@ -37,7 +41,7 @@ function filterCount(filter: QueueFilter, state: PlaygroundState): number {
 }
 
 function GateSlot({ active }: { active: boolean }) {
-  return <i data-active={active} aria-hidden="true" />;
+  return <i className={cn("h-1.5 flex-1 rounded-full", active ? "bg-blue-500" : "bg-neutral-700")} aria-hidden="true" />;
 }
 
 export function QueueCanvas({
@@ -66,91 +70,94 @@ export function QueueCanvas({
     state.stats.expired;
 
   return (
-    <section className="queue-canvas" aria-labelledby="queue-title">
-      <div className="section-heading queue-heading">
-        <div>
-          <h2 id="queue-title">Live queue</h2>
-          <p>{state.stats.total === 0 ? "Nothing queued yet." : `${state.stats.total} real jobs in this tab.`}</p>
-        </div>
-        <span className="step-mark">02</span>
-      </div>
+    <Panel className="h-full overflow-hidden" aria-labelledby="queue-title">
+      <PanelHeader number="02" title="Live queue" description={state.stats.total === 0 ? "Ready for the first job." : `${state.stats.total} jobs running in this browser tab.`} />
 
       {state.paused ? (
-        <div className="queue-notice paused-notice" role="status">
-          <strong>Paused</strong>
-          <span>Queued jobs will wait; running jobs will finish.</span>
+        <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200" role="status">
+          <strong className="font-medium">Worker paused</strong>
+          <span className="text-xs opacity-75">Queued jobs wait; running jobs finish.</span>
         </div>
       ) : state.stats.running === state.concurrency && state.stats.queued > 0 ? (
-        <div className="queue-notice limit-notice" role="status">
-          <strong>Worker limit full</strong>
-          <span>Extra jobs stay queued until a slot opens.</span>
+        <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200" role="status">
+          <strong className="font-medium">Concurrency full</strong>
+          <span className="text-xs opacity-75">Waiting for a worker slot.</span>
         </div>
       ) : null}
 
-      <div className="queue-gate" aria-label={`${waiting} waiting, ${state.stats.running} running, ${terminal} stopped`}>
-        <div className="gate-stage waiting-stage">
-          <span>Waiting</span>
-          <strong><NumberTicker value={waiting} /></strong>
-          <div aria-hidden="true">
-            {Array.from({ length: Math.min(3, waiting) }, (_, index) => (
-              <i key={index} />
+      <div className="m-4 grid grid-cols-[1fr_1.3fr_1fr] overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950 text-white" aria-label={`${waiting} waiting, ${state.stats.running} running, ${terminal} stopped`}>
+        <div className="flex min-w-0 flex-col justify-between p-3 sm:p-4">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">Waiting</span>
+          <strong className="mt-3 text-2xl font-semibold tabular-nums"><NumberTicker value={waiting} /></strong>
+          <div className="mt-4 flex gap-1" aria-hidden="true">
+            {Array.from({ length: 3 }, (_, index) => (
+              <i className={cn("h-1.5 flex-1 rounded-full", index < waiting ? "bg-amber-400" : "bg-neutral-800")} key={index} />
             ))}
           </div>
         </div>
-        <div className="gate-worker" data-paused={state.paused}>
-          <span>{state.paused ? "Gate closed" : "Worker gate"}</span>
-          <div>
+        <div className="border-x border-neutral-800 bg-neutral-900/70 p-3 sm:p-4">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">{state.paused ? "Gate closed" : "Worker slots"}</span>
+          <div className="mt-4 flex gap-1.5">
             {[0, 1, 2, 3].slice(0, state.concurrency).map((slot) => (
               <GateSlot key={slot} active={slot < state.stats.running} />
             ))}
           </div>
-          <strong><NumberTicker value={state.stats.running} /> / {state.concurrency}</strong>
+          <strong className="mt-3 block font-mono text-sm font-medium"><NumberTicker value={state.stats.running} /> / {state.concurrency} active</strong>
         </div>
-        <div className="gate-stage terminal-stage">
-          <span>History</span>
-          <strong><NumberTicker value={terminal} /></strong>
-          <div aria-hidden="true"><i /><i /><i /></div>
+        <div className="flex min-w-0 flex-col justify-between p-3 sm:p-4">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">History</span>
+          <strong className="mt-3 text-2xl font-semibold tabular-nums"><NumberTicker value={terminal} /></strong>
+          <div className="mt-4 flex gap-1" aria-hidden="true"><i className="h-1.5 flex-1 rounded-full bg-emerald-500" /><i className="h-1.5 flex-1 rounded-full bg-red-500" /><i className="h-1.5 flex-1 rounded-full bg-neutral-700" /></div>
         </div>
       </div>
 
-      <div className="queue-summary" aria-label="Queue statistics" aria-live="polite">
-        <span><i className="queued" />Queued <strong><NumberTicker value={state.stats.queued} /></strong></span>
-        <span><i className="running" />Running <strong><NumberTicker value={state.stats.running} /></strong></span>
-        <span><i className="succeeded" />Succeeded <strong><NumberTicker value={state.stats.succeeded} /></strong></span>
-        <span><i className="failed" />Failed <strong><NumberTicker value={state.stats.failed} /></strong></span>
+      <div className="mx-4 grid grid-cols-4 divide-x divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800" aria-label="Queue statistics" aria-live="polite">
+        {([
+          ["Queued", state.stats.queued, "bg-amber-400"],
+          ["Running", state.stats.running, "bg-blue-500"],
+          ["Succeeded", state.stats.succeeded, "bg-emerald-500"],
+          ["Failed", state.stats.failed, "bg-red-500"],
+        ] as const).map(([label, value, tone]) => (
+          <span className="flex min-w-0 flex-col gap-1 px-2 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-3" key={label}>
+            <span className="flex items-center gap-1.5 truncate text-[11px] text-neutral-500"><i className={cn("size-1.5 shrink-0 rounded-full", tone)} />{label}</span>
+            <strong className="font-mono text-xs"><NumberTicker value={value} /></strong>
+          </span>
+        ))}
       </div>
 
-      <div className="queue-filters">
-        <div className="filter-scroll" aria-label="Filter jobs">
+      <div className="mt-4 grid gap-2 border-y border-neutral-200 bg-neutral-50 p-3 lg:grid-cols-[1fr_180px] dark:border-neutral-800 dark:bg-neutral-900/40">
+        <div className="flex min-w-0 gap-1 overflow-x-auto" aria-label="Filter jobs">
           {FILTERS.map((option) => (
             <button
               key={option.value}
               type="button"
               aria-pressed={filter === option.value}
               onClick={() => setFilter(option.value)}
+              className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-white hover:text-black focus-visible:outline-2 focus-visible:outline-blue-500 aria-pressed:bg-black aria-pressed:text-white dark:hover:bg-neutral-800 dark:hover:text-white dark:aria-pressed:bg-white dark:aria-pressed:text-black"
             >
               <span>{option.label}</span>
-              <strong>{filterCount(option.value, state)}</strong>
+              <strong className="font-mono text-[10px] opacity-70">{filterCount(option.value, state)}</strong>
             </button>
           ))}
         </div>
-        <label className="job-search">
-          <span className="sr-only">Search jobs</span>
-          <input
+        <div>
+          <BeUiInput
+            aria-label="Search jobs"
             type="search"
             name="job-search"
             value={search}
             autoComplete="off"
             placeholder="Search jobs…"
-            onChange={(event) => setSearch(event.target.value)}
+            onValueChange={setSearch}
+            className="[&_div]:min-h-9 [&_input]:min-h-9"
           />
-        </label>
+        </div>
       </div>
 
-      <div className="result-count">
+      <div className="flex min-h-10 items-center justify-between border-b border-neutral-200 px-4 font-mono text-[10px] uppercase tracking-wider text-neutral-500 dark:border-neutral-800">
         <span>{visibleJobs.length} shown</span>
         {filtered ? (
-          <button
+          <button className="rounded px-2 py-1 normal-case tracking-normal text-neutral-600 hover:bg-neutral-100 hover:text-black focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-neutral-900 dark:hover:text-white"
             type="button"
             onClick={() => {
               setFilter("all");
@@ -163,7 +170,7 @@ export function QueueCanvas({
       </div>
 
       {visibleJobs.length > 0 ? (
-        <ul className="live-job-list">
+        <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
           {visibleJobs.map((job) => (
             <JobRow
               key={job.id}
@@ -174,16 +181,11 @@ export function QueueCanvas({
           ))}
         </ul>
       ) : (
-        <div className="queue-empty">
-          <span className="empty-ticket" aria-hidden="true"><i /><i /><i /></span>
-          <strong>{filtered ? "No jobs match this view" : "Enqueue the example"}</strong>
-          <p>
-            {filtered
-              ? "Clear the filter or try another job name."
-              : "The real queue is ready. Your first job will appear here."}
-          </p>
-          {filtered ? (
-            <button
+        <EmptyState
+          title={filtered ? "No jobs match this view" : "Queue is ready"}
+          description={filtered ? "Clear the filter or search another job name." : "Enqueue a handler and watch the real lifecycle appear here."}
+          action={filtered ? (
+            <BeUiButton
               type="button"
               onClick={() => {
                 setFilter("all");
@@ -191,10 +193,10 @@ export function QueueCanvas({
               }}
             >
               Clear filter
-            </button>
-          ) : null}
-        </div>
+            </BeUiButton>
+          ) : undefined}
+        />
       )}
-    </section>
+    </Panel>
   );
 }

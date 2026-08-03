@@ -74,10 +74,12 @@ export function BeUiTabsTrigger({
   value,
   children,
   disabled = false,
+  className,
 }: {
   value: string;
   children: ReactNode;
   disabled?: boolean;
+  className?: string;
 }) {
   const tabs = useTabs();
   const active = tabs.value === value;
@@ -101,11 +103,11 @@ export function BeUiTabsTrigger({
   };
 
   return (
-    <div className="beui-tab-slot">
+    <div className="relative min-w-0 flex-1">
       {active ? (
         <motion.span
           layoutId={tabs.layoutId}
-          className="beui-tab-indicator"
+          className="absolute inset-0 rounded-md bg-black shadow-sm dark:bg-white"
           aria-hidden="true"
         />
       ) : null}
@@ -118,6 +120,9 @@ export function BeUiTabsTrigger({
         disabled={disabled}
         onClick={() => tabs.setValue(value)}
         onKeyDown={handleKeyDown}
+        className={`relative z-10 flex min-h-11 w-full items-center justify-center rounded-md px-3 text-sm font-medium transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-40 ${
+          active ? "text-white dark:text-black" : "text-neutral-500 hover:text-black dark:text-neutral-400 dark:hover:text-white"
+        } ${className ?? ""}`}
       >
         {children}
       </button>

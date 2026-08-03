@@ -4,6 +4,14 @@ import {
   progressMessage,
   statusLabel,
 } from "../format";
+import { cn } from "../lib/utils";
+
+const toneClass: Record<LifecycleEntry["tone"], string> = {
+  neutral: "border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-950",
+  active: "border-blue-500 bg-blue-500 shadow-[0_0_0_4px_rgb(59_130_246/0.12)]",
+  success: "border-emerald-500 bg-emerald-500",
+  danger: "border-red-500 bg-red-500",
+};
 
 interface LifecycleEntry {
   label: string;
@@ -63,16 +71,18 @@ function entriesFor(job: JobSnapshot): LifecycleEntry[] {
 }
 
 export function Lifecycle({ job }: { job: JobSnapshot }) {
+  const entries = entriesFor(job);
   return (
-    <ol className="lifecycle">
-      {entriesFor(job).map((entry, index) => (
-        <li key={`${entry.label}-${index}`} data-tone={entry.tone}>
-          <i aria-hidden="true" />
-          <div>
-            <strong>{entry.label}</strong>
-            <span>{entry.detail}</span>
+    <ol className="mt-3 space-y-0">
+      {entries.map((entry, index) => (
+        <li className="relative grid grid-cols-[16px_1fr_auto] gap-2.5 pb-4 last:pb-0" key={`${entry.label}-${index}`}>
+          {index < entries.length - 1 ? <i className="absolute left-[7px] top-3 h-full w-px bg-neutral-200 dark:bg-neutral-800" aria-hidden="true" /> : null}
+          <i className={cn("relative z-10 mt-0.5 size-4 rounded-full border-4", toneClass[entry.tone])} aria-hidden="true" />
+          <div className="min-w-0">
+            <strong className="block text-xs font-medium">{entry.label}</strong>
+            <span className="mt-0.5 block text-[11px] text-neutral-500">{entry.detail}</span>
           </div>
-          <time>{entry.timestamp ? formatClock(entry.timestamp) : "—"}</time>
+          <time className="font-mono text-[10px] text-neutral-500">{entry.timestamp ? formatClock(entry.timestamp) : "—"}</time>
         </li>
       ))}
     </ol>

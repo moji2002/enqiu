@@ -13,6 +13,7 @@ site/.wrangler/
 site/public/index.html
 site/public/landing.js
 site/public/landing.css
+site/public/landing*.woff2
 site/public/og.png
 site/public/playground/
 site/public/enqiu/

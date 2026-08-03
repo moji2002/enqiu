@@ -46,22 +46,10 @@ test("serves the upper Enqiu landing page at the site root", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Enqiu — Queues without ceremony<\/title>/i);
-  assert.match(html, /Background jobs,[\s\S]*called like functions\./);
-  assert.match(html, /pnpm add enqiu/);
-  assert.match(html, /jobs\.<span class="token-call">sendEmail/);
-  assert.match(html, /Start local\. Add durability without rewriting jobs\./);
-  assert.match(html, /04 · Reliability contract/);
-  assert.match(html, /href="\/playground"/);
-  assert.match(html, /id="queue-lab"/);
-  assert.match(html, /id="run-job"/);
-  assert.match(html, /id="job-status"/);
-  assert.match(html, /data-stage="queued"/);
+  assert.match(html, /<title>Enqiu — Background jobs called like functions<\/title>/i);
+  assert.match(html, /id="root"/);
   assert.match(html, /<script type="module"[^>]+src="\/landing\.js"><\/script>/);
-  assert.match(html, /prefers-reduced-motion/);
-  assert.doesNotMatch(html, /id="event-list"|id="fail-next"|queue-lane/);
   assert.doesNotMatch(html, /href="\/admin"|>Admin</i);
-  assert.doesNotMatch(html, /const stages =/);
   assert.doesNotMatch(html, /API proposal|Confirmation point|codex-preview/i);
 });
 
@@ -81,6 +69,10 @@ test("runs the React landing preview with the actual Enqiu browser module", asyn
   assert.match(source, /queue\.on\("progress"/);
   assert.match(source, /queue\.on\("succeeded"/);
   assert.match(landingSource, /createRoot\(/);
+  assert.match(landingSource, /SpatialQueue/);
+  assert.match(landingSource, /Make work/);
+  assert.match(landingSource, /Use it in the frontend/);
+  assert.match(landingSource, /pnpm add enqiu/);
   assert.doesNotMatch(landingSource, /querySelector|addEventListener/);
   assert.equal(packageMetadata.browser, "./dist/index.js");
   assert.equal(packageMetadata.exports["."].browser, "./dist/index.js");
@@ -103,7 +95,10 @@ test("ships a React playground backed by Enqiu queue state", async () => {
   assert.match(queueSource, /createPlaygroundQueue/);
   assert.match(queueSource, /reportProgress/);
   assert.match(source, /createRoot\(/);
-  assert.match(source, /BeUiTabs/);
+  assert.match(source, /SpatialQueue/);
+  assert.match(source, /JobComposer/);
+  assert.match(source, /JobInspector/);
+  assert.match(source, /AnimatePresence/);
   assert.match(canvasSource, /NumberTicker/);
   assert.equal(JSON.parse(sitePackage).dependencies.motion, "^12.43.0");
   assert.match(playgroundHtml, /id="root"/);
