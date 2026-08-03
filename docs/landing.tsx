@@ -12,33 +12,6 @@ function Landing() {
         {" · "}
         <a href="https://www.npmjs.com/package/enqiu">npm</a>
       </nav>
-      <section aria-labelledby="benchmark-dashboard">
-        <h2 id="benchmark-dashboard">Benchmark dashboard</h2>
-        <p>No benchmark results have been published yet.</p>
-        <table>
-          <caption>Queue benchmark status</caption>
-          <thead>
-            <tr>
-              <th scope="col">Library</th>
-              <th scope="col">Throughput</th>
-              <th scope="col">p95 latency</th>
-              <th scope="col">Memory</th>
-              <th scope="col">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(["Enqiu", "BullMQ", "Bee-Queue", "pg-boss"] as const).map((library) => (
-              <tr key={library}>
-                <th scope="row">{library}</th>
-                <td>Pending</td>
-                <td>Pending</td>
-                <td>Pending</td>
-                <td>Benchmark not run</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
     </main>
   );
 }
