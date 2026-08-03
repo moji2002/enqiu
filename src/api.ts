@@ -148,7 +148,7 @@ export type HandlerJobDefinition<
 
 export type JobDefinition =
   | SchemaJobDefinition<StandardSchemaV1<unknown, unknown>, unknown>
-  | HandlerJobDefinition<unknown, unknown>;
+  | HandlerJobDefinition<never, unknown>;
 
 export type JobDefinitions = Record<string, JobDefinition>;
 

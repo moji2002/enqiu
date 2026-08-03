@@ -5,8 +5,9 @@
 [![runtime dependencies](https://img.shields.io/badge/runtime_deps-0-f05a28?style=flat-square)](package.json)
 [![license](https://img.shields.io/npm/l/enqiu?style=flat-square)](LICENSE)
 
-A small, type-safe job queue for Node.js and Bun. Start in memory, move to
-Redis without changing your job API.
+A small, type-safe job queue for browsers, Node.js, and Bun. Run jobs in memory
+wherever JavaScript runs, then move server workloads to Redis without changing
+your job API.
 
 [Live overview](https://enqiu.worksonmy.dev) ·
 [npm](https://www.npmjs.com/package/enqiu) ·
@@ -21,6 +22,11 @@ npm install enqiu
 
 Enqiu has no runtime dependencies. Redis, schema, Hono, and telemetry packages
 remain your choice.
+
+The memory driver runs in modern browsers as an in-tab, non-durable queue. It
+fits local-first workflows, client-side processing, and interactive tools. Use
+Redis from a server runtime when work must survive page closes or be shared
+across processes.
 
 ## Quick start
 

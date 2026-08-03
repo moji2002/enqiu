@@ -12,6 +12,9 @@ site/.wrangler/
 # Generated deployment mirrors
 site/public/landing.html
 site/public/og.png
+site/public/queue-lab.js
+site/public/admin/
+site/public/enqiu/
 
 # Local tooling and caches
 .remember/
@@ -19,6 +22,7 @@ site/public/og.png
 coverage/
 *.tgz
 *.log
+*.tsbuildinfo
 .DS_Store
 
 # Local environment

@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Added an explicit browser export for the in-memory queue, with browser usage
+  guidance and a live playground powered by the packaged Enqiu runtime.
+- Added a React queue admin at `/admin` for inspecting and controlling real
+  in-browser jobs.
+
+### Fixed
+
+- Allowed strict TypeScript handlers to combine typed inputs with `JobContext`.
+
 ## [0.1.2] - 2026-08-02
 
 ### Added

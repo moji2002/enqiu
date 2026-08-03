@@ -2,6 +2,10 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
+interface Fetcher {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
+
 interface Env {
   ASSETS: Fetcher;
   IMAGES: {
@@ -35,6 +39,16 @@ const worker = {
       );
       if (landing.ok) {
         return landing;
+      }
+    }
+
+    if (url.pathname === "/admin" || url.pathname === "/admin/") {
+      const adminUrl = new URL("/admin/index.html", request.url);
+      const admin = await env.ASSETS.fetch(
+        new Request(adminUrl, { headers: request.headers }),
+      );
+      if (admin.ok) {
+        return admin;
       }
     }
 

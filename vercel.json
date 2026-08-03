@@ -1,8 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm --prefix site run sync:landing",
+  "installCommand": "pnpm install --frozen-lockfile && npm --prefix site ci",
+  "buildCommand": "npm --prefix site run build:landing",
   "outputDirectory": "site/public",
   "rewrites": [
+    {
+      "source": "/admin",
+      "destination": "/admin/index.html"
+    },
     {
       "source": "/",
       "destination": "/landing.html"

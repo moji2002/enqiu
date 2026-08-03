@@ -3,6 +3,7 @@ import {
   JobValidationError,
   job,
   enqiu,
+  type JobContext,
   type StandardSchemaV1,
 } from "../src/index.js";
 
@@ -71,6 +72,28 @@ describe("public API", () => {
     const handle = await jobs.double(21);
     expectTypeOf(await handle.result).toEqualTypeOf<number>();
     await expect(handle.result).resolves.toBe(42);
+  });
+
+  it("accepts typed handlers that use the job context", async () => {
+    const jobs = enqiu({
+      sendEmail: async (
+        input: { to: string },
+        { reportProgress }: JobContext,
+      ) => {
+        await reportProgress({ completed: 1, total: 1 });
+        return { delivered: true, to: input.to };
+      },
+    });
+
+    const handle = await jobs.sendEmail({ to: "hello@enqiu.dev" });
+    expectTypeOf(await handle.result).toEqualTypeOf<{
+      delivered: boolean;
+      to: string;
+    }>();
+    await expect(handle.result).resolves.toEqual({
+      delivered: true,
+      to: "hello@enqiu.dev",
+    });
   });
 
   it("validates before accepting a schema-first job", async () => {

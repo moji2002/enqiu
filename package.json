@@ -1,12 +1,14 @@
 {
   "name": "enqiu",
   "version": "0.1.2",
-  "description": "A type-safe job queue for Node.js and Bun with memory and Redis drivers",
+  "description": "A type-safe job queue for browsers, Node.js, and Bun with memory and Redis drivers",
   "type": "module",
   "types": "./dist/index.d.ts",
+  "browser": "./dist/index.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
       "import": "./dist/index.js"
     }
   },
@@ -41,6 +43,7 @@
     "rate-limit",
     "retry",
     "typescript",
+    "browser",
     "in-memory"
   ],
   "author": "Mojtaba Beheshti <it@worksonmy.dev>",
