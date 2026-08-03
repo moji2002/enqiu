@@ -46,6 +46,10 @@ test("serves the upper Enqiu landing page at the site root", async () => {
   assert.match(html, /jobs\.<span class="token-call">sendEmail/);
   assert.match(html, /Memory \+ Redis/);
   assert.match(html, /04 · Hono/);
+  assert.match(html, /id="playground"/);
+  assert.match(html, /id="enqueue-job"/);
+  assert.match(html, /const advanceQueue/);
+  assert.match(html, /prefers-reduced-motion/);
   assert.doesNotMatch(html, /API proposal|Confirmation point|codex-preview/i);
 });
 

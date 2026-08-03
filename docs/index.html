@@ -21,6 +21,10 @@
       content="Type-safe background jobs with memory and Redis drivers for Node.js and Bun."
     />
     <meta name="twitter:image" content="og.png" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2317151d'/%3E%3Cpath d='M17 15h28v9H28v6h14v8H28v6h17v9H17z' fill='%23fffef9'/%3E%3Ccircle cx='47' cy='47' r='9' fill='%236551e8'/%3E%3C/svg%3E"
+    />
     <title>Enqiu — Queues without ceremony</title>
     <style>
       :root {
@@ -862,7 +866,767 @@
         *,
         *::before,
         *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
           transition: none !important;
+        }
+      }
+
+      /* Landing redesign: Queue Playground */
+      :root {
+        --play-paper: #f6f4ed;
+        --play-surface: #fffef9;
+        --play-ink: #17151d;
+        --play-muted: #696570;
+        --play-line: #c9c5cc;
+        --play-violet: #6551e8;
+        --play-violet-soft: #ddd7ff;
+        --play-yellow: #ffc943;
+        --play-yellow-soft: #fff1ba;
+        --play-coral: #ff6178;
+        --play-coral-soft: #ffd6dc;
+        --play-mint: #45c597;
+        --play-mint-soft: #cff5e7;
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+      }
+
+      body {
+        display: block;
+        color: var(--play-ink);
+        background:
+          linear-gradient(rgb(23 21 29 / 3%) 1px, transparent 1px),
+          var(--play-paper);
+        background-size: 100% 32px;
+      }
+
+      .topbar {
+        height: 58px;
+        border-color: var(--play-ink);
+        background: rgb(246 244 237 / 92%);
+      }
+
+      .topbar-inner {
+        width: min(1240px, 100%);
+        padding: 0 28px;
+      }
+
+      .brand {
+        min-width: 0;
+        font-size: 21px;
+        font-weight: 900;
+        letter-spacing: -0.07em;
+      }
+
+      .brand-mark,
+      .version-badge,
+      .search {
+        display: none;
+      }
+
+      .brand-dot {
+        color: var(--play-violet);
+      }
+
+      .runtime-label {
+        position: absolute;
+        left: 50%;
+        padding: 7px 10px;
+        color: white;
+        background: var(--play-ink);
+        font: 700 9px/1 var(--mono);
+        letter-spacing: 0.04em;
+        transform: translateX(-50%);
+      }
+
+      .top-links {
+        display: flex;
+        min-width: 0;
+        margin-left: auto;
+        gap: 20px;
+        color: var(--play-ink);
+        font: 700 11px/1 var(--mono);
+      }
+
+      .top-links a {
+        position: relative;
+      }
+
+      .top-links a::after {
+        position: absolute;
+        right: 0;
+        bottom: -7px;
+        left: 0;
+        height: 2px;
+        background: var(--play-violet);
+        content: "";
+        transform: scaleX(0);
+        transform-origin: right;
+        transition: transform 180ms var(--ease-out);
+      }
+
+      .layout {
+        display: block;
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+      }
+
+      .sidebar,
+      .toc {
+        display: none;
+      }
+
+      main {
+        width: 100%;
+        padding: 0 0 120px;
+      }
+
+      .landing-hero {
+        margin: 0;
+        padding: 76px 0 34px;
+      }
+
+      .hero-intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        gap: 56px;
+        align-items: end;
+        margin-bottom: 40px;
+      }
+
+      .hero-intro h1 {
+        max-width: 850px;
+        font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif;
+        font-size: clamp(64px, 9.4vw, 128px);
+        font-weight: 900;
+        line-height: 0.82;
+        letter-spacing: -0.085em;
+      }
+
+      .hero-intro h1 span {
+        display: block;
+        color: var(--play-violet);
+      }
+
+      .hero-support {
+        min-width: 0;
+        padding-bottom: 5px;
+      }
+
+      .hero-support p {
+        max-width: 430px;
+        margin: 0 0 24px;
+        color: var(--play-muted);
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 18px;
+      }
+
+      .hero-install {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 12px 12px 15px;
+        color: white;
+        background: var(--play-ink);
+        box-shadow: 5px 5px 0 var(--play-coral);
+        font: 700 11px/1 var(--mono);
+      }
+
+      .hero-install .copy-button {
+        width: 28px;
+        height: 26px;
+        margin: 0;
+      }
+
+      .text-link {
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--play-ink);
+        font: 700 11px/1 var(--mono);
+      }
+
+      .queue-playground {
+        overflow: hidden;
+        border: 1px solid var(--play-ink);
+        background: var(--play-surface);
+        box-shadow: 10px 10px 0 rgb(23 21 29 / 8%);
+      }
+
+      .playground-toolbar {
+        display: flex;
+        align-items: center;
+        min-height: 52px;
+        padding: 0 14px 0 17px;
+        border-bottom: 1px solid var(--play-ink);
+        background: #ece9df;
+      }
+
+      .playground-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--play-violet);
+        font: 800 9px/1 var(--mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .playground-status::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentcolor;
+        box-shadow: 0 0 0 4px rgb(101 81 232 / 13%);
+        content: "";
+        animation: status-pulse 1.8s ease-in-out infinite;
+      }
+
+      .playground-controls {
+        display: flex;
+        gap: 7px;
+        margin-left: auto;
+      }
+
+      .play-button {
+        min-height: 34px;
+        padding: 0 11px;
+        border: 1px solid var(--play-ink);
+        border-radius: 0;
+        color: var(--play-ink);
+        background: var(--play-surface);
+        cursor: pointer;
+        font: 700 9px/1 var(--mono);
+        transition:
+          transform 140ms var(--ease-out),
+          box-shadow 140ms var(--ease-out),
+          background-color 140ms ease;
+      }
+
+      .play-button.primary {
+        color: white;
+        background: var(--play-violet);
+      }
+
+      .play-button.danger[aria-pressed="true"] {
+        color: #971d31;
+        background: var(--play-coral-soft);
+        box-shadow: inset 0 0 0 1px #971d31;
+      }
+
+      .play-button:active,
+      .copy-button:active,
+      .tab:active {
+        transform: scale(0.97);
+      }
+
+      .playground-body {
+        display: grid;
+        grid-template-columns: 270px minmax(0, 1fr);
+        min-height: 420px;
+      }
+
+      .playground-code {
+        padding: 22px;
+        border-right: 1px solid var(--play-ink);
+        color: #eeeaf3;
+        background: var(--play-ink);
+      }
+
+      .playground-file {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        color: #8f8999;
+        font: 700 9px/1 var(--mono);
+      }
+
+      .demo-code {
+        margin: 0;
+        padding: 0;
+        overflow: visible;
+        font-size: 10px;
+        line-height: 1.9;
+        white-space: pre-wrap;
+      }
+
+      .event-stream {
+        margin-top: 28px;
+        padding-top: 18px;
+        border-top: 1px solid #3c3942;
+      }
+
+      .event-stream h2 {
+        margin: 0 0 13px;
+        color: #8f8999;
+        font: 700 8px/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .event-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .event-list li {
+        display: grid;
+        grid-template-columns: 7px minmax(0, 1fr);
+        gap: 7px;
+        align-items: start;
+        color: #b9b4c0;
+        font: 600 8px/1.45 var(--mono);
+      }
+
+      .event-list li::before {
+        width: 6px;
+        height: 6px;
+        margin-top: 2px;
+        border-radius: 50%;
+        background: var(--event-color, var(--play-violet));
+        content: "";
+      }
+
+      .queue-board {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        overflow: hidden;
+        background:
+          linear-gradient(rgb(23 21 29 / 4%) 1px, transparent 1px),
+          #f1efe8;
+        background-size: 100% 30px;
+      }
+
+      .queue-board::after {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 5px;
+        background: linear-gradient(
+          90deg,
+          var(--play-violet) 0 34%,
+          var(--play-yellow) 34% 67%,
+          var(--play-mint) 67%
+        );
+        content: "";
+      }
+
+      .queue-lane {
+        min-width: 0;
+        padding: 18px 14px 34px;
+        border-left: 1px solid var(--play-line);
+      }
+
+      .queue-lane:first-child {
+        border-left: 0;
+      }
+
+      .lane-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 0 0 18px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--play-line);
+        font: 800 8px/1 var(--mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .lane-count {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        color: white;
+        background: var(--play-ink);
+        font-size: 8px;
+      }
+
+      .lane-jobs {
+        display: grid;
+        gap: 11px;
+      }
+
+      .queue-job {
+        position: relative;
+        padding: 13px 12px;
+        border: 1px solid var(--play-ink);
+        border-left: 5px solid var(--job-color, var(--play-violet));
+        background: var(--play-surface);
+        box-shadow: 4px 4px 0 rgb(23 21 29 / 9%);
+        transition:
+          transform 420ms var(--ease-in-out),
+          opacity 240ms var(--ease-out),
+          box-shadow 180ms ease;
+        @starting-style {
+          opacity: 0;
+          transform: translateY(18px) scale(0.98);
+        }
+      }
+
+      .queue-job[data-status="active"] {
+        background: var(--play-yellow-soft);
+        box-shadow: 5px 5px 0 rgb(255 201 67 / 34%);
+      }
+
+      .queue-job[data-status="retry"] {
+        background: var(--play-coral-soft);
+      }
+
+      .queue-job[data-status="complete"] {
+        background: var(--play-mint-soft);
+      }
+
+      .job-status {
+        display: inline-flex;
+        float: right;
+        align-items: center;
+        gap: 5px;
+        color: var(--job-color, var(--play-violet));
+        font: 800 7px/1 var(--mono);
+        text-transform: uppercase;
+      }
+
+      .job-status::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentcolor;
+        content: "";
+      }
+
+      .queue-job[data-status="active"] .job-status::before {
+        animation: status-pulse 1.2s ease-in-out infinite;
+      }
+
+      .queue-job strong {
+        display: block;
+        margin: 0 0 7px;
+        padding-right: 54px;
+        font: 750 10px/1.2 var(--mono);
+      }
+
+      .queue-job small {
+        display: block;
+        color: #6f6a73;
+        font: 600 8px/1.3 var(--mono);
+      }
+
+      .job-progress {
+        height: 3px;
+        margin-top: 11px;
+        overflow: hidden;
+        background: rgb(23 21 29 / 14%);
+      }
+
+      .job-progress span {
+        display: block;
+        width: var(--progress, 0%);
+        height: 100%;
+        background: var(--play-ink);
+        transition: width 520ms var(--ease-in-out);
+      }
+
+      .playground-footer {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border-top: 1px solid var(--play-ink);
+      }
+
+      .playground-note {
+        min-height: 84px;
+        padding: 17px 18px;
+        border-left: 1px solid var(--play-line);
+      }
+
+      .playground-note:first-child {
+        border-left: 0;
+      }
+
+      .playground-note strong {
+        display: block;
+        margin-bottom: 6px;
+        font: 800 8px/1 var(--mono);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .playground-note span {
+        color: var(--play-muted);
+        font-size: 11px;
+      }
+
+      .trust-strip {
+        display: grid;
+        grid-template-columns: 1.3fr repeat(3, 0.7fr);
+        margin-top: 22px;
+        border: 1px solid var(--play-line);
+        background: rgb(255 254 249 / 62%);
+      }
+
+      .trust-item {
+        min-height: 78px;
+        padding: 16px 18px;
+        border-left: 1px solid var(--play-line);
+      }
+
+      .trust-item:first-child {
+        border-left: 0;
+      }
+
+      .trust-item strong {
+        display: block;
+        margin-bottom: 7px;
+        font: 800 9px/1 var(--mono);
+        text-transform: uppercase;
+      }
+
+      .trust-item span {
+        color: var(--play-muted);
+        font-size: 11px;
+      }
+
+      main > section:not(.landing-hero) {
+        width: min(900px, 100%);
+        margin: 116px auto 0;
+      }
+
+      main > section:not(.landing-hero) h2 {
+        max-width: 740px;
+        margin-bottom: 17px;
+        font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif;
+        font-size: clamp(36px, 5vw, 54px);
+        font-weight: 900;
+        line-height: 0.98;
+        letter-spacing: -0.06em;
+      }
+
+      .section-kicker {
+        color: var(--play-violet);
+      }
+
+      .section-copy {
+        max-width: 700px;
+        font-size: 16px;
+      }
+
+      .tab-shell,
+      .api-list,
+      .notice,
+      .inference-card,
+      .driver-card,
+      .principle {
+        border-radius: 0;
+      }
+
+      .tab-shell {
+        box-shadow: 7px 7px 0 rgb(23 21 29 / 10%);
+      }
+
+      .inference-grid,
+      .principles {
+        gap: 10px;
+      }
+
+      .inference-card,
+      .principle,
+      .driver-card,
+      .api-list {
+        background: rgb(255 254 249 / 76%);
+      }
+
+      .inference-card .step {
+        border-radius: 0;
+        color: white;
+        background: var(--play-violet);
+      }
+
+      .decision {
+        width: min(980px, 100%) !important;
+        padding: clamp(30px, 6vw, 64px);
+        border-radius: 0;
+        background: var(--play-ink);
+        box-shadow: 10px 10px 0 var(--play-violet);
+      }
+
+      .decision::after {
+        right: -80px;
+        bottom: -120px;
+        width: 260px;
+        height: 260px;
+        background: var(--play-coral);
+      }
+
+      @keyframes status-pulse {
+        50% {
+          opacity: 0.35;
+          transform: scale(0.82);
+        }
+      }
+
+      ::view-transition-old(root),
+      ::view-transition-new(root) {
+        animation-duration: 0ms;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .top-links a:hover::after {
+          transform: scaleX(1);
+          transform-origin: left;
+        }
+
+        .play-button:hover {
+          box-shadow: 3px 3px 0 rgb(23 21 29 / 16%);
+          transform: translate(-1px, -1px);
+        }
+
+        .queue-job:hover {
+          box-shadow: 6px 6px 0 rgb(23 21 29 / 12%);
+          transform: translate(-1px, -1px);
+        }
+      }
+
+      @media (max-width: 900px) {
+        .hero-intro {
+          grid-template-columns: 1fr;
+          gap: 30px;
+        }
+
+        .hero-intro h1 {
+          font-size: clamp(62px, 15vw, 112px);
+        }
+
+        .playground-body {
+          grid-template-columns: 1fr;
+        }
+
+        .playground-code {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+          border-right: 0;
+          border-bottom: 1px solid var(--play-ink);
+        }
+
+        .event-stream {
+          margin-top: 0;
+          padding-top: 0;
+          padding-left: 24px;
+          border-top: 0;
+          border-left: 1px solid #3c3942;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .topbar-inner {
+          padding: 0 16px;
+        }
+
+        .runtime-label,
+        .top-links a:not(:last-child) {
+          display: none;
+        }
+
+        .layout {
+          width: min(100% - 28px, 580px);
+        }
+
+        .landing-hero {
+          padding-top: 50px;
+        }
+
+        .hero-intro h1 {
+          font-size: clamp(48px, 18vw, 72px);
+        }
+
+        .hero-support p {
+          font-size: 15px;
+        }
+
+        .playground-toolbar {
+          align-items: flex-start;
+          min-height: 0;
+          padding: 14px;
+          flex-direction: column;
+          gap: 13px;
+        }
+
+        .playground-controls {
+          width: 100%;
+          margin-left: 0;
+        }
+
+        .play-button {
+          flex: 1;
+          min-height: 40px;
+          padding: 0 7px;
+          font-size: 8px;
+        }
+
+        .playground-code {
+          display: block;
+          padding: 18px;
+        }
+
+        .event-stream {
+          margin-top: 22px;
+          padding: 16px 0 0;
+          border-top: 1px solid #3c3942;
+          border-left: 0;
+        }
+
+        .queue-board {
+          grid-template-columns: 1fr;
+        }
+
+        .queue-lane {
+          min-height: 118px;
+          border-top: 1px solid var(--play-line);
+          border-left: 0;
+        }
+
+        .queue-lane:first-child {
+          border-top: 0;
+        }
+
+        .lane-jobs {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .playground-footer,
+        .trust-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .playground-note,
+        .trust-item {
+          min-height: auto;
+          border-top: 1px solid var(--play-line);
+          border-left: 0;
+        }
+
+        .playground-note:first-child,
+        .trust-item:first-child {
+          border-top: 0;
+        }
+
+        main > section:not(.landing-hero) {
+          margin-top: 90px;
+        }
+
+        main > section:not(.landing-hero) h2 {
+          font-size: 38px;
         }
       }
     </style>
@@ -871,84 +1635,149 @@
     <a class="skip-link" href="#content">Skip to content</a>
     <header class="topbar">
       <div class="topbar-inner">
-        <a class="brand" href="#top" aria-label="Enqiu documentation home">
-          <span class="brand-mark">e</span>
-          <span>Enqiu</span>
-          <span class="version-badge">v0.1</span>
+        <a class="brand" href="#top" aria-label="Enqiu home">
+          <span>enqiu<span class="brand-dot">.</span></span>
         </a>
-        <div class="search">
-          Typed jobs · Memory + Redis · Node.js + Bun
-        </div>
+        <span class="runtime-label">NODE + BUN</span>
         <nav class="top-links" aria-label="Top navigation">
-          <a href="#api">API</a>
-          <a href="#hono">Hono</a>
-          <a href="#decision">Install</a>
+          <a href="#playground">Playground</a>
+          <a href="#quick-start">Docs</a>
+          <a href="https://github.com/moji2002/enqiu">GitHub ↗</a>
         </nav>
       </div>
     </header>
 
     <div class="layout" id="top">
-      <aside class="sidebar">
-        <p class="nav-title">Start</p>
-        <nav aria-label="Documentation navigation">
-          <a class="active" href="#quick-start">Quick start</a>
-          <a href="#inference">Type inference</a>
-          <a href="#drivers">Drivers</a>
-        </nav>
-
-        <p class="nav-title">Guides</p>
-        <nav>
-          <a href="#redis">Redis</a>
-          <a href="#hono">Hono</a>
-          <a href="#policies">Job policies</a>
-          <a href="#schedules">Cron schedules</a>
-          <a href="#reliability">Reliability</a>
-        </nav>
-
-        <p class="nav-title">Reference</p>
-        <nav>
-          <a href="#api">Queue API</a>
-          <a href="#job-handle">Job handle</a>
-          <a href="#decision">Install Enqiu</a>
-        </nav>
-
-        <div class="runtime-card">
-          <strong>Runtime support</strong>
-          <div class="runtime-row">
-            <span class="status-dot"></span>
-            <span>Node.js · Bun</span>
-          </div>
-        </div>
-      </aside>
-
       <main id="content">
-        <div class="eyebrow">Zero runtime dependencies</div>
-        <h1>Queues without <em>ceremony.</em></h1>
-        <p class="lede">
-          One small, fully inferred API for background work. Start in memory,
-          switch to Redis without rewriting your jobs, and use it naturally from
-          Node.js, Bun, or Hono.
-        </p>
-        <div class="hero-tags" aria-label="Package qualities">
-          <span class="tag">typed by inference</span>
-          <span class="tag">memory + redis</span>
-          <span class="tag">39 tests · Node + Bun</span>
-          <span class="tag">cron schedules</span>
-          <span class="tag">web standards</span>
-        </div>
-        <div class="install">
-          <span class="prompt">$</span>
-          <span>pnpm add enqiu</span>
-          <button
-            class="copy-button"
-            type="button"
-            data-copy="pnpm add enqiu"
-            aria-label="Copy install command"
-            title="Copy"
-          >
-            ⧉
-          </button>
-        </div>
+        <section class="landing-hero" id="playground" aria-labelledby="hero-title">
+          <div class="hero-intro">
+            <h1 id="hero-title">Queues without <span>ceremony.</span></h1>
+            <div class="hero-support">
+              <p>
+                Call background jobs like functions. Start in memory, move to
+                Redis, and keep the same inferred API from input to result.
+              </p>
+              <div class="hero-actions">
+                <div class="hero-install">
+                  <span>$ pnpm add enqiu</span>
+                  <button
+                    class="copy-button"
+                    type="button"
+                    data-copy="pnpm add enqiu"
+                    aria-label="Copy install command"
+                    title="Copy install command"
+                  >
+                    ⧉
+                  </button>
+                </div>
+                <a class="text-link" href="#quick-start">Read the docs →</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="queue-playground" aria-label="Interactive Enqiu queue playground">
+            <div class="playground-toolbar">
+              <span class="playground-status" id="playground-status">Playground live</span>
+              <div class="playground-controls" aria-label="Playground controls">
+                <button class="play-button" id="reset-queue" type="button">Reset</button>
+                <button
+                  class="play-button danger"
+                  id="fail-next"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  Fail next
+                </button>
+                <button class="play-button primary" id="enqueue-job" type="button">
+                  + Enqueue job
+                </button>
+              </div>
+            </div>
+
+            <div class="playground-body">
+              <div class="playground-code">
+                <div>
+                  <div class="playground-file">
+                    <span>playground.ts</span>
+                    <span>typed</span>
+                  </div>
+                  <pre class="demo-code"><code><span class="token-keyword">const</span> delivery = <span class="token-keyword">await</span>
+  jobs.<span class="token-call">sendEmail</span>({
+    to: <span class="token-string">'you@example.com'</span>,
+    subject: <span class="token-string">'Welcome'</span>,
+  })
+
+<span class="token-keyword">const</span> result = <span class="token-keyword">await</span>
+  delivery.result
+
+<span class="token-comment">// ^? { delivered: boolean }</span></code></pre>
+                </div>
+                <div class="event-stream">
+                  <h2>Event stream</h2>
+                  <ol class="event-list" id="event-list" aria-live="polite"></ol>
+                </div>
+              </div>
+
+              <div class="queue-board" aria-label="Simulated job states">
+                <section class="queue-lane" aria-labelledby="waiting-title">
+                  <h2 class="lane-title" id="waiting-title">
+                    <span>Queued</span>
+                    <span class="lane-count" id="waiting-count">0</span>
+                  </h2>
+                  <div class="lane-jobs" id="waiting-jobs"></div>
+                </section>
+                <section class="queue-lane" aria-labelledby="active-title">
+                  <h2 class="lane-title" id="active-title">
+                    <span>Working</span>
+                    <span class="lane-count" id="active-count">0</span>
+                  </h2>
+                  <div class="lane-jobs" id="active-jobs"></div>
+                </section>
+                <section class="queue-lane" aria-labelledby="complete-title">
+                  <h2 class="lane-title" id="complete-title">
+                    <span>Complete</span>
+                    <span class="lane-count" id="complete-count">0</span>
+                  </h2>
+                  <div class="lane-jobs" id="complete-jobs"></div>
+                </section>
+              </div>
+            </div>
+
+            <div class="playground-footer" aria-label="How the playground works">
+              <div class="playground-note">
+                <strong>Enqueue</strong>
+                <span>Add a typed job to the waiting lane.</span>
+              </div>
+              <div class="playground-note">
+                <strong>Process</strong>
+                <span>Watch progress and retries update in place.</span>
+              </div>
+              <div class="playground-note">
+                <strong>Complete</strong>
+                <span>Follow the inferred result to its terminal state.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="trust-strip" aria-label="Enqiu package facts">
+            <div class="trust-item">
+              <strong>One definition</strong>
+              <span>Names, inputs, and results stay inferred end to end.</span>
+            </div>
+            <div class="trust-item">
+              <strong>Runtime deps</strong>
+              <span>Zero</span>
+            </div>
+            <div class="trust-item">
+              <strong>Drivers</strong>
+              <span>Memory + Redis</span>
+            </div>
+            <div class="trust-item">
+              <strong>Runtime</strong>
+              <span>Node.js + Bun</span>
+            </div>
+          </div>
+        </section>
 
         <section id="quick-start">
           <p class="section-kicker">01 · Quick start</p>
@@ -1774,25 +2603,258 @@ schedule.nextRunAt
         </section>
       </main>
 
-      <aside class="toc" aria-label="On this page">
-        <p class="nav-title">On this page</p>
-        <a class="active" href="#quick-start">Quick start</a>
-        <a href="#inference">Type inference</a>
-        <a href="#drivers">Drivers</a>
-        <a href="#hono">Hono</a>
-        <a href="#policies">Job policies</a>
-        <a href="#schedules">Cron schedules</a>
-        <a href="#reliability">Reliability</a>
-        <a href="#api">API surface</a>
-        <a href="#decision">Install Enqiu</a>
-        <div class="toc-note">
-          Memory and Redis share one public contract. Durability differences are
-          called out explicitly.
-        </div>
-      </aside>
     </div>
 
     <script>
+      const waitingJobs = document.querySelector("#waiting-jobs");
+      const activeJobs = document.querySelector("#active-jobs");
+      const completeJobs = document.querySelector("#complete-jobs");
+      const waitingCount = document.querySelector("#waiting-count");
+      const activeCount = document.querySelector("#active-count");
+      const completeCount = document.querySelector("#complete-count");
+      const eventList = document.querySelector("#event-list");
+      const enqueueButton = document.querySelector("#enqueue-job");
+      const failButton = document.querySelector("#fail-next");
+      const resetButton = document.querySelector("#reset-queue");
+      const playgroundStatus = document.querySelector("#playground-status");
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+      const jobTemplates = [
+        { name: "sendEmail()", detail: "priority: normal", color: "#6551e8" },
+        { name: "resizeImage()", detail: "asset_02 · worker 03", color: "#ffc943" },
+        { name: "syncAccount()", detail: "tenant: northwind", color: "#ff6178" },
+        { name: "sendDigest()", detail: "scheduled: 09:00", color: "#45c597" },
+        { name: "importRows()", detail: "1,204 rows", color: "#34a9d8" },
+      ];
+
+      let jobSequence = 8;
+      let templateIndex = 0;
+      let failNext = false;
+      let queueState;
+
+      const createInitialState = () => ({
+        waiting: [
+          {
+            id: "job-5",
+            name: "sendDigest()",
+            detail: "scheduled: 09:00",
+            color: "#6551e8",
+            status: "waiting",
+            attempt: 1,
+            progress: 0,
+          },
+          {
+            id: "job-6",
+            name: "syncAccount()",
+            detail: "retry in 250ms",
+            color: "#ff6178",
+            status: "retry",
+            attempt: 2,
+            progress: 0,
+          },
+        ],
+        active: [
+          {
+            id: "job-4",
+            name: "resizeImage()",
+            detail: "asset_02 · worker 03",
+            color: "#ffc943",
+            status: "active",
+            attempt: 1,
+            progress: 50,
+          },
+        ],
+        complete: [
+          {
+            id: "job-3",
+            name: "sendEmail()",
+            detail: "42ms · em_4c90",
+            color: "#45c597",
+            status: "complete",
+            attempt: 1,
+            progress: 100,
+          },
+        ],
+        events: [
+          { message: "resizeImage progress · 50%", color: "#ffc943" },
+          { message: "syncAccount retry · attempt 2/5", color: "#ff6178" },
+          { message: "sendEmail completed · 42ms", color: "#45c597" },
+        ],
+      });
+
+      const statusLabel = (job) => {
+        if (job.status === "active") return "running";
+        if (job.status === "complete") return "done";
+        if (job.status === "retry") return "retry";
+        return "waiting";
+      };
+
+      const createJobElement = (job) => {
+        const article = document.createElement("article");
+        article.className = "queue-job";
+        article.dataset.status = job.status;
+        article.style.setProperty("--job-color", job.color);
+        article.style.viewTransitionName = job.id;
+
+        const status = document.createElement("span");
+        status.className = "job-status";
+        status.textContent = statusLabel(job);
+
+        const name = document.createElement("strong");
+        name.textContent = job.name;
+
+        const detail = document.createElement("small");
+        detail.textContent = job.detail;
+
+        article.append(status, name, detail);
+
+        if (job.status === "active") {
+          const progress = document.createElement("div");
+          const progressFill = document.createElement("span");
+          progress.className = "job-progress";
+          progress.setAttribute("aria-label", `${job.progress}% complete`);
+          progressFill.style.setProperty("--progress", `${job.progress}%`);
+          progress.append(progressFill);
+          article.append(progress);
+        }
+
+        return article;
+      };
+
+      const renderJobs = (container, jobs) => {
+        container.replaceChildren(...jobs.map(createJobElement));
+      };
+
+      const renderQueue = () => {
+        renderJobs(waitingJobs, queueState.waiting);
+        renderJobs(activeJobs, queueState.active);
+        renderJobs(completeJobs, queueState.complete);
+        waitingCount.textContent = String(queueState.waiting.length);
+        activeCount.textContent = String(queueState.active.length);
+        completeCount.textContent = String(queueState.complete.length);
+
+        const events = queueState.events.slice(0, 4).map((event) => {
+          const item = document.createElement("li");
+          item.textContent = event.message;
+          item.style.setProperty("--event-color", event.color);
+          return item;
+        });
+        eventList.replaceChildren(...events);
+      };
+
+      const announce = (message, color) => {
+        queueState.events.unshift({ message, color });
+        queueState.events = queueState.events.slice(0, 4);
+      };
+
+      const updateQueue = (mutate) => {
+        const update = () => {
+          mutate();
+          renderQueue();
+        };
+
+        if (!reducedMotion.matches && document.startViewTransition) {
+          document.startViewTransition(update);
+          return;
+        }
+        update();
+      };
+
+      const advanceQueue = () => {
+        if (document.hidden) return;
+
+        updateQueue(() => {
+          const active = queueState.active[0];
+          if (active) {
+            active.progress = Math.min(active.progress + 25, 100);
+
+            if (active.progress === 100) {
+              queueState.active.shift();
+              if (failNext) {
+                failNext = false;
+                failButton.setAttribute("aria-pressed", "false");
+                playgroundStatus.textContent = "Playground live";
+                active.status = "retry";
+                active.attempt += 1;
+                active.progress = 0;
+                active.detail = `retry · attempt ${active.attempt}/5`;
+                queueState.waiting.push(active);
+                announce(`${active.name} retry · attempt ${active.attempt}/5`, "#ff6178");
+              } else {
+                active.status = "complete";
+                active.detail = `${720 + active.id.length * 13}ms · result ready`;
+                queueState.complete.unshift(active);
+                queueState.complete = queueState.complete.slice(0, 3);
+                announce(`${active.name} completed · result ready`, "#45c597");
+              }
+            } else {
+              announce(`${active.name} progress · ${active.progress}%`, "#ffc943");
+            }
+          }
+
+          if (queueState.active.length === 0 && queueState.waiting.length === 0) {
+            const template = jobTemplates[templateIndex % jobTemplates.length];
+            templateIndex += 1;
+            jobSequence += 1;
+            queueState.waiting.push({
+              ...template,
+              id: `job-${jobSequence}`,
+              status: "waiting",
+              attempt: 1,
+              progress: 0,
+            });
+            announce(`${template.name} accepted · queued`, template.color);
+          }
+
+          if (queueState.active.length === 0 && queueState.waiting.length > 0) {
+            const next = queueState.waiting.shift();
+            next.status = "active";
+            next.progress = 0;
+            next.detail = `attempt ${next.attempt}/5 · worker 03`;
+            queueState.active.push(next);
+            announce(`${next.name} started · worker 03`, "#6551e8");
+          }
+        });
+      };
+
+      enqueueButton.addEventListener("click", () => {
+        const template = jobTemplates[templateIndex % jobTemplates.length];
+        templateIndex += 1;
+        jobSequence += 1;
+
+        updateQueue(() => {
+          queueState.waiting.push({
+            ...template,
+            id: `job-${jobSequence}`,
+            status: "waiting",
+            attempt: 1,
+            progress: 0,
+          });
+          announce(`${template.name} accepted · queued`, template.color);
+        });
+      });
+
+      failButton.addEventListener("click", () => {
+        failNext = !failNext;
+        failButton.setAttribute("aria-pressed", String(failNext));
+        playgroundStatus.textContent = failNext
+          ? "Failure armed"
+          : "Playground live";
+      });
+
+      resetButton.addEventListener("click", () => {
+        updateQueue(() => {
+          queueState = createInitialState();
+          failNext = false;
+          failButton.setAttribute("aria-pressed", "false");
+          playgroundStatus.textContent = "Playground live";
+        });
+      });
+
+      queueState = createInitialState();
+      renderQueue();
+      window.setInterval(advanceQueue, 1900);
+
       const copy = async (value, button) => {
         const previous = button.textContent;
         const previousLabel = button.getAttribute("aria-label");
