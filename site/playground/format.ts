@@ -58,7 +58,10 @@ export function formatDuration(job: JobSnapshot): string {
 }
 
 export function shortId(id: string): string {
-  const tail = id.split(":").at(-1) ?? id;
+  const parts = id.split(":");
+  const tail = parts.length >= 4
+    ? parts.slice(-2).join(":")
+    : parts.at(-1) ?? id;
   return tail.length > 12 ? `${tail.slice(0, 8)}…` : tail;
 }
 

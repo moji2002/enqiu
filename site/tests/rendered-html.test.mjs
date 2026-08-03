@@ -89,9 +89,11 @@ test("runs the React landing preview with the actual Enqiu browser module", asyn
 });
 
 test("ships a React playground backed by Enqiu queue state", async () => {
-  const [source, queueSource, playgroundHtml, response, oldAdmin] = await Promise.all([
+  const [source, queueSource, canvasSource, sitePackage, playgroundHtml, response, oldAdmin] = await Promise.all([
     readFile(new URL("../playground/main.tsx", import.meta.url), "utf8"),
     readFile(new URL("../playground/queue.ts", import.meta.url), "utf8"),
+    readFile(new URL("../playground/components/queue-canvas.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../public/playground/index.html", import.meta.url), "utf8"),
     render("/playground"),
     render("/admin"),
@@ -101,6 +103,9 @@ test("ships a React playground backed by Enqiu queue state", async () => {
   assert.match(queueSource, /createPlaygroundQueue/);
   assert.match(queueSource, /reportProgress/);
   assert.match(source, /createRoot\(/);
+  assert.match(source, /BeUiTabs/);
+  assert.match(canvasSource, /NumberTicker/);
+  assert.equal(JSON.parse(sitePackage).dependencies.motion, "^12.43.0");
   assert.match(playgroundHtml, /id="root"/);
   assert.match(playgroundHtml, /\/playground\/playground\.js/);
   assert.equal(response.status, 200);

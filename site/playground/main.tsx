@@ -11,6 +11,11 @@ import { JobComposer } from "./components/job-composer";
 import { JobInspector } from "./components/job-inspector";
 import { QueueCanvas } from "./components/queue-canvas";
 import { QueueToolbar } from "./components/queue-toolbar";
+import {
+  BeUiTabs,
+  BeUiTabsList,
+  BeUiTabsTrigger,
+} from "./components/beui/motion-tabs";
 import { defaultDraft } from "./queue";
 import type {
   ComposerDraft,
@@ -94,6 +99,19 @@ function PlaygroundApp() {
     setMobileView("compose");
   };
 
+  const enqueue = async (nextDraft: ComposerDraft) => {
+    await actions.enqueue(nextDraft);
+    if (window.matchMedia("(max-width: 699px)").matches) setMobileView("jobs");
+  };
+
+  const enqueueScenario = async (
+    kind: "queue-three" | "fail-once" | "schedule-five",
+    nextDraft: ComposerDraft,
+  ) => {
+    await actions.enqueueScenario(kind, nextDraft);
+    if (window.matchMedia("(max-width: 699px)").matches) setMobileView("jobs");
+  };
+
   return (
     <div className="playground-shell" data-mobile-view={mobileView}>
       <a className="skip-link" href="#workbench">Skip to workbench</a>
@@ -122,26 +140,30 @@ function PlaygroundApp() {
         </div>
       ) : null}
 
-      <nav className="mobile-task-nav" aria-label="Playground view">
-        {(["compose", "jobs", "inspect"] as const).map((view) => (
-          <button
-            key={view}
-            type="button"
-            aria-pressed={mobileView === view}
-            disabled={view === "inspect" && !selectedJob}
-            onClick={() => setMobileView(view)}
-          >
-            {view === "jobs" ? `Jobs ${state.stats.total}` : view.charAt(0).toUpperCase() + view.slice(1)}
-          </button>
-        ))}
-      </nav>
+      <BeUiTabs
+        className="mobile-task-tabs"
+        value={mobileView}
+        onValueChange={(view) => setMobileView(view as MobileView)}
+      >
+        <BeUiTabsList className="mobile-task-nav" ariaLabel="Playground view">
+          {(["compose", "jobs", "inspect"] as const).map((view) => (
+            <BeUiTabsTrigger
+              key={view}
+              value={view}
+              disabled={view === "inspect" && !selectedJob}
+            >
+              {view === "jobs" ? `Jobs ${state.stats.total}` : view.charAt(0).toUpperCase() + view.slice(1)}
+            </BeUiTabsTrigger>
+          ))}
+        </BeUiTabsList>
+      </BeUiTabs>
 
       <main className="workbench-grid" id="workbench">
         <JobComposer
           draft={draft}
           onDraftChange={setDraft}
-          onEnqueue={actions.enqueue}
-          onScenario={actions.enqueueScenario}
+          onEnqueue={enqueue}
+          onScenario={enqueueScenario}
           busyAction={state.busyAction}
         />
         <QueueCanvas state={state} actions={workbenchActions} />

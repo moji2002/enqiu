@@ -18,6 +18,7 @@ import {
   submitDraft,
   type PlaygroundQueue,
 } from "./queue";
+import { shortId } from "./format";
 import type {
   ComposerDraft,
   Concurrency,
@@ -196,7 +197,7 @@ export function usePlaygroundQueue(): readonly [
         select(handle.id);
         setState((current) => ({
           ...current,
-          alert: `${handle.name} accepted as ${handle.id}.`,
+          alert: `${handle.name} accepted · ${shortId(handle.id)}`,
         }));
         await refresh();
       });

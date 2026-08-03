@@ -147,6 +147,7 @@ export function JobComposer({
         ref={editor}
         value={draft.payload}
         error={error}
+        onSubmitShortcut={() => void submit()}
         onChange={(payload) => {
           payloads.current.set(draft.recipe, payload);
           update("payload", payload);
@@ -157,7 +158,9 @@ export function JobComposer({
         <label>
           <span>Priority</span>
           <select
+            name="priority"
             value={draft.priority}
+            autoComplete="off"
             onChange={(event) =>
               update("priority", event.target.value as ComposerDraft["priority"])
             }
@@ -170,7 +173,9 @@ export function JobComposer({
         <label>
           <span>Delay</span>
           <select
+            name="delay"
             value={draft.delayMs}
+            autoComplete="off"
             onChange={(event) =>
               update("delayMs", Number(event.target.value) as ComposerDraft["delayMs"])
             }
@@ -188,7 +193,9 @@ export function JobComposer({
           <label>
             <span>Attempts</span>
             <select
+              name="attempts"
               value={draft.retryAttempts}
+              autoComplete="off"
               onChange={(event) =>
                 update(
                   "retryAttempts",
@@ -205,8 +212,11 @@ export function JobComposer({
             <span>Timeout (ms)</span>
             <input
               type="number"
+              name="timeout"
               min={1}
-              placeholder="No limit"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="No limit…"
               value={draft.timeoutMs ?? ""}
               onChange={(event) =>
                 update(
@@ -220,8 +230,11 @@ export function JobComposer({
             <span>Expires in (ms)</span>
             <input
               type="number"
+              name="expiry"
               min={1}
-              placeholder="Never"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="Never…"
               value={draft.expiresInMs ?? ""}
               onChange={(event) =>
                 update(
@@ -235,7 +248,10 @@ export function JobComposer({
             <span>Custom ID</span>
             <input
               type="text"
-              placeholder="Auto-generated"
+              name="custom-id"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Auto-generated…"
               value={draft.customId ?? ""}
               onChange={(event) => update("customId", event.target.value || undefined)}
             />
@@ -244,7 +260,10 @@ export function JobComposer({
             <span>Idempotency key</span>
             <input
               type="text"
-              placeholder="Optional single-flight key"
+              name="idempotency-key"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Optional single-flight key…"
               value={draft.idempotencyKey ?? ""}
               onChange={(event) =>
                 update("idempotencyKey", event.target.value || undefined)
@@ -270,21 +289,21 @@ export function JobComposer({
         disabled={busyAction === "enqueue"}
         onClick={() => void submit()}
       >
-        <span>Enqueue job</span>
-        <span aria-hidden="true">→</span>
+        <span>{busyAction === "enqueue" ? "Queueing…" : "Enqueue job"}</span>
+        <kbd aria-hidden="true">Ctrl/⌘ ↵</kbd>
       </button>
 
       <div className="scenario-row" aria-label="Queue scenarios">
         <span>Try a behavior</span>
         <div>
-          <button type="button" onClick={() => void runScenario("queue-three")}>
-            Queue three
+          <button type="button" disabled={busyAction === "queue-three"} onClick={() => void runScenario("queue-three")}>
+            {busyAction === "queue-three" ? "Queueing…" : "Queue three"}
           </button>
-          <button type="button" onClick={() => void runScenario("fail-once")}>
-            Fail once
+          <button type="button" disabled={busyAction === "fail-once"} onClick={() => void runScenario("fail-once")}>
+            {busyAction === "fail-once" ? "Queueing…" : "Fail once"}
           </button>
-          <button type="button" onClick={() => void runScenario("schedule-five")}>
-            Schedule +5s
+          <button type="button" disabled={busyAction === "schedule-five"} onClick={() => void runScenario("schedule-five")}>
+            {busyAction === "schedule-five" ? "Scheduling…" : "Schedule +5s"}
           </button>
         </div>
       </div>

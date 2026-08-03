@@ -112,7 +112,6 @@ export function LandingApp() {
       <main id="content">
         <section className="hero" id="top" aria-labelledby="hero-title">
           <div className="hero-copy">
-            <div className="eyebrow"><Signal /> Type-safe jobs · Browser ready</div>
             <h1 id="hero-title">Background jobs,<span>called like functions.</span></h1>
             <p>
               Define handlers once. Enqiu gives you typed calls, retries, schedules,
@@ -122,7 +121,7 @@ export function LandingApp() {
               <a className="button primary" href="/playground">Try the live queue</a>
               <CopyCommand />
             </div>
-            <div className="support-note"><i aria-hidden="true" /> The memory driver runs in modern browsers, Node.js, and Bun.</div>
+            <div className="support-note"><i aria-hidden="true" /> Type-safe jobs in modern browsers, Node.js, and Bun.</div>
           </div>
           <QueuePreview />
         </section>

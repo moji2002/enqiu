@@ -5,6 +5,7 @@ import type {
   PlaygroundState,
   QueueFilter,
 } from "../types";
+import { NumberTicker } from "./beui/number-ticker";
 import { JobRow } from "./job-row";
 
 const ACTIVE = new Set<JobStatus>(["queued", "scheduled", "running"]);
@@ -89,7 +90,7 @@ export function QueueCanvas({
       <div className="queue-gate" aria-label={`${waiting} waiting, ${state.stats.running} running, ${terminal} stopped`}>
         <div className="gate-stage waiting-stage">
           <span>Waiting</span>
-          <strong>{waiting}</strong>
+          <strong><NumberTicker value={waiting} /></strong>
           <div aria-hidden="true">
             {Array.from({ length: Math.min(3, waiting) }, (_, index) => (
               <i key={index} />
@@ -103,20 +104,20 @@ export function QueueCanvas({
               <GateSlot key={slot} active={slot < state.stats.running} />
             ))}
           </div>
-          <strong>{state.stats.running} / {state.concurrency}</strong>
+          <strong><NumberTicker value={state.stats.running} /> / {state.concurrency}</strong>
         </div>
         <div className="gate-stage terminal-stage">
           <span>History</span>
-          <strong>{terminal}</strong>
+          <strong><NumberTicker value={terminal} /></strong>
           <div aria-hidden="true"><i /><i /><i /></div>
         </div>
       </div>
 
       <div className="queue-summary" aria-label="Queue statistics" aria-live="polite">
-        <span><i className="queued" />Queued <strong>{state.stats.queued}</strong></span>
-        <span><i className="running" />Running <strong>{state.stats.running}</strong></span>
-        <span><i className="succeeded" />Succeeded <strong>{state.stats.succeeded}</strong></span>
-        <span><i className="failed" />Failed <strong>{state.stats.failed}</strong></span>
+        <span><i className="queued" />Queued <strong><NumberTicker value={state.stats.queued} /></strong></span>
+        <span><i className="running" />Running <strong><NumberTicker value={state.stats.running} /></strong></span>
+        <span><i className="succeeded" />Succeeded <strong><NumberTicker value={state.stats.succeeded} /></strong></span>
+        <span><i className="failed" />Failed <strong><NumberTicker value={state.stats.failed} /></strong></span>
       </div>
 
       <div className="queue-filters">
@@ -137,8 +138,10 @@ export function QueueCanvas({
           <span className="sr-only">Search jobs</span>
           <input
             type="search"
+            name="job-search"
             value={search}
-            placeholder="Search jobs"
+            autoComplete="off"
+            placeholder="Search jobs…"
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>

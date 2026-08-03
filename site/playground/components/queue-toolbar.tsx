@@ -37,6 +37,7 @@ export function QueueToolbar({
             key={value}
             type="button"
             aria-pressed={state.concurrency === value}
+            disabled={state.busyAction === "concurrency"}
             onClick={() =>
               void actions
                 .setConcurrency(value as 1 | 2 | 4)
@@ -47,6 +48,25 @@ export function QueueToolbar({
           </button>
         ))}
       </div>
+
+      <label className="concurrency-select">
+        <span className="sr-only">Worker concurrency</span>
+        <select
+          name="worker-concurrency"
+          aria-label="Worker concurrency"
+          value={state.concurrency}
+          disabled={state.busyAction === "concurrency"}
+          onChange={(event) =>
+            void actions
+              .setConcurrency(Number(event.target.value) as 1 | 2 | 4)
+              .catch(() => undefined)
+          }
+        >
+          <option value={1}>1×</option>
+          <option value={2}>2×</option>
+          <option value={4}>4×</option>
+        </select>
+      </label>
 
       <details className="queue-menu">
         <summary aria-label="More queue controls">•••</summary>

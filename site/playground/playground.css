@@ -56,6 +56,7 @@ button,
 summary,
 select {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 button:disabled {
@@ -170,7 +171,7 @@ summary {
   gap: 7px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -259,7 +260,7 @@ summary {
 .worker-readout small {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .worker-light {
@@ -311,7 +312,7 @@ summary {
   margin-right: 5px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -327,6 +328,10 @@ summary {
   color: white;
   border-color: var(--ink);
   background: var(--ink);
+}
+
+.concurrency-select {
+  display: none;
 }
 
 .queue-menu {
@@ -474,8 +479,40 @@ summary {
   from { opacity: 0; transform: translate(-50%, -8px); }
 }
 
+.mobile-task-tabs,
 .mobile-task-nav {
   display: none;
+}
+
+.beui-number-ticker,
+.beui-number-glyphs {
+  display: inline-flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.beui-number-digit {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.beui-number-column {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  will-change: transform;
+}
+
+.beui-number-column > span {
+  display: flex;
+  height: 1.1em;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .workbench-grid {
@@ -563,7 +600,7 @@ summary {
   margin-bottom: 7px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -628,7 +665,7 @@ summary {
 .recipe-option small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -666,7 +703,7 @@ summary {
   margin: 0;
   color: #b8b5c5;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -686,7 +723,7 @@ summary {
   border-radius: 6px;
   background: transparent;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .editor-bar button:hover,
@@ -705,7 +742,7 @@ summary {
   border: 0;
   background: transparent;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.7;
   tab-size: 2;
 }
@@ -721,7 +758,7 @@ summary {
   padding: 7px 11px;
   border-top: 1px solid rgb(255 255 255 / 9%);
   color: #9996a7;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.4;
 }
 
@@ -843,14 +880,15 @@ summary {
   transform: translateY(-1px);
 }
 
-.enqueue-primary > span:last-child {
-  display: grid;
-  width: 27px;
-  height: 27px;
+.enqueue-primary kbd {
+  padding: 5px 7px;
   color: var(--ink);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--queue-soft);
-  place-items: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1;
 }
 
 .scenario-row {
@@ -862,7 +900,7 @@ summary {
 .scenario-row > span {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -882,7 +920,7 @@ summary {
   border-radius: 7px;
   background: transparent;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 650;
 }
 
@@ -943,7 +981,7 @@ summary {
 .gate-worker > span {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1047,7 +1085,7 @@ summary {
   background: rgb(255 254 250 / 72%);
 }
 
-.queue-summary span {
+.queue-summary > span {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -1055,10 +1093,10 @@ summary {
   padding: 8px 9px;
   color: var(--muted);
   border-right: 1px solid var(--line);
-  font-size: 9px;
+  font-size: 10px;
 }
 
-.queue-summary span:last-child {
+.queue-summary > span:last-child {
   border-right: 0;
 }
 
@@ -1122,7 +1160,7 @@ summary {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -1137,7 +1175,7 @@ summary {
   min-width: 14px;
   color: inherit;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .filter-scroll button:hover,
@@ -1170,7 +1208,7 @@ summary {
   padding: 0 3px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .result-count button {
@@ -1273,7 +1311,7 @@ summary {
 .job-identity strong {
   overflow: hidden;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
 }
 
@@ -1283,7 +1321,7 @@ summary {
   overflow: hidden;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1298,7 +1336,7 @@ summary {
 }
 
 .job-state strong {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .job-progress {
@@ -1338,7 +1376,7 @@ summary {
 .job-progress small {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .job-meta {
@@ -1348,7 +1386,7 @@ summary {
 .job-meta time {
   color: var(--ink);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .queue-empty,
@@ -1402,7 +1440,7 @@ summary {
   max-width: 280px;
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1445,7 +1483,7 @@ summary {
   border-radius: 7px;
   background: var(--canvas);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 750;
 }
 
@@ -1465,7 +1503,7 @@ summary {
   border: 0;
   background: transparent;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1490,7 +1528,7 @@ summary {
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--paper);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 750;
 }
 
@@ -1528,7 +1566,7 @@ summary {
   color: var(--muted);
   border: 0;
   background: transparent;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 750;
 }
 
@@ -1559,7 +1597,7 @@ summary {
   border-radius: 5px;
   background: var(--ink);
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 9px;
   place-items: center;
 }
 
@@ -1576,7 +1614,7 @@ summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .inspector-progress span {
@@ -1608,7 +1646,7 @@ summary {
 .timeline-section h3 {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1617,7 +1655,7 @@ summary {
 .job-facts dd {
   margin: 0;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -1671,13 +1709,13 @@ summary {
 }
 
 .lifecycle strong {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .lifecycle span,
 .lifecycle time {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .lifecycle time {
@@ -1704,7 +1742,7 @@ summary {
   padding: 13px;
   color: #eae8f1;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1745,12 +1783,12 @@ summary {
 .job-logs time {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 9px;
   text-transform: uppercase;
 }
 
 .job-logs strong {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .log-fields {
@@ -1761,7 +1799,7 @@ summary {
   width: max-content;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1774,7 +1812,7 @@ summary {
   background: #191921;
   color: #eae8f1;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .evidence-empty {
@@ -1792,7 +1830,7 @@ summary {
 .error-evidence > div:first-child span {
   color: #a43e31;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -1870,6 +1908,21 @@ summary {
 
   .job-progress {
     display: none;
+  }
+
+  .queue-filters {
+    display: grid;
+    gap: 8px;
+  }
+
+  .filter-scroll {
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .job-search input {
+    width: 100%;
   }
 }
 
@@ -1982,13 +2035,13 @@ summary {
   }
 
   .playground-branding > div > span {
-    font-size: 7px;
+    font-size: 9px;
   }
 
   .queue-toolbar {
     display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 7px;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    gap: 6px;
     padding-top: 9px;
   }
 
@@ -2001,34 +2054,38 @@ summary {
   }
 
   .pause-button {
-    min-width: 72px;
+    min-width: 68px;
   }
 
   .pause-button,
-  .concurrency-picker button,
+  .concurrency-select select,
   .queue-menu summary {
     min-height: 44px;
   }
 
-  .concurrency-picker button,
   .queue-menu summary {
     width: 44px;
   }
 
   .concurrency-picker {
-    grid-column: 1 / 4;
-    grid-row: 2;
-    padding: 0;
-    border: 0;
+    display: none;
   }
 
-  .concurrency-picker > span {
-    margin-right: auto;
+  .concurrency-select {
+    display: block;
+  }
+
+  .concurrency-select select {
+    width: 58px;
+    padding: 0 9px;
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: var(--paper);
+    font-weight: 750;
   }
 
   .queue-menu {
-    grid-column: 3;
-    grid-row: 1;
     align-self: center;
   }
 
@@ -2047,10 +2104,15 @@ summary {
     animation: none;
   }
 
-  .mobile-task-nav {
+  .mobile-task-tabs {
     position: sticky;
     top: 0;
     z-index: 15;
+    display: block;
+  }
+
+  .mobile-task-nav {
+    position: relative;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     padding: 6px;
@@ -2058,7 +2120,22 @@ summary {
     background: var(--paper);
   }
 
+  .beui-tab-slot {
+    position: relative;
+    min-width: 0;
+  }
+
+  .beui-tab-indicator {
+    position: absolute;
+    inset: 0;
+    border-radius: 7px;
+    background: var(--ink);
+  }
+
   .mobile-task-nav button {
+    position: relative;
+    z-index: 1;
+    width: 100%;
     min-height: 44px;
     color: var(--muted);
     border: 0;
@@ -2068,9 +2145,8 @@ summary {
     font-weight: 750;
   }
 
-  .mobile-task-nav button[aria-pressed="true"] {
+  .mobile-task-nav button[aria-selected="true"] {
     color: white;
-    background: var(--ink);
   }
 
   .workbench-grid {
@@ -2118,11 +2194,11 @@ summary {
     grid-template-columns: 1fr 1fr;
   }
 
-  .queue-summary span:nth-child(2) {
+  .queue-summary > span:nth-child(2) {
     border-right: 0;
   }
 
-  .queue-summary span:nth-child(-n + 2) {
+  .queue-summary > span:nth-child(-n + 2) {
     border-bottom: 1px solid var(--line);
   }
 
@@ -2165,7 +2241,7 @@ summary {
   }
 
   .json-editor textarea {
-    min-height: 220px;
+    min-height: 190px;
   }
 
   .editor-bar,
@@ -2201,10 +2277,12 @@ summary {
   }
 
   .enqueue-primary {
-    position: sticky;
-    bottom: 10px;
-    z-index: 5;
-    box-shadow: 0 9px 26px rgb(23 23 32 / 18%);
+    position: static;
+    box-shadow: none;
+  }
+
+  .enqueue-primary kbd {
+    font-size: 8px;
   }
 
   .inspector-title-row,
