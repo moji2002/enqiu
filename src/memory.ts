@@ -188,6 +188,8 @@ export interface QueueStats {
 }
 
 export interface CleanupOptions {
+  /** Only remove jobs with one of these terminal statuses. */
+  status?: JobStatus | readonly JobStatus[];
   /** Only remove jobs finished at least this many milliseconds ago. @default 0 */
   olderThan?: number;
   /** Maximum number of jobs to remove. @default Infinity */
@@ -852,6 +854,14 @@ export class MemoryQueue<Jobs extends JobMap> {
   cleanup(options: CleanupOptions = {}): string[] {
     const olderThan = options.olderThan ?? 0;
     const limit = options.limit ?? Number.POSITIVE_INFINITY;
+    const statuses =
+      options.status === undefined
+        ? undefined
+        : new Set<JobStatus>(
+            typeof options.status === "string"
+              ? [options.status]
+              : options.status,
+          );
     if (!Number.isFinite(olderThan) || olderThan < 0) {
       throw new RangeError("olderThan must be a non-negative finite number");
     }
@@ -868,6 +878,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       if (
         removed.length >= limit ||
         !isTerminal(job.status) ||
+        (statuses !== undefined && !statuses.has(job.status)) ||
         (job.finishedAt ?? Number.POSITIVE_INFINITY) > threshold
       ) {
         continue;

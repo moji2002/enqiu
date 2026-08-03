@@ -306,6 +306,29 @@ describe("public API", () => {
     expect(calls).toBe(1);
   });
 
+  it("cleans only the requested terminal statuses in memory", async () => {
+    const jobs = enqiu(
+      { work: async (value: string) => value },
+      { worker: false },
+    );
+
+    const succeeded = await jobs.work("done");
+    await jobs.worker.start();
+    await expect(succeeded.result).resolves.toBe("done");
+    await jobs.worker.pause();
+
+    const cancelled = await jobs.work("cancelled");
+    await cancelled.cancel("test cancellation");
+
+    await jobs.queue.cleanup({ status: "succeeded" });
+
+    await expect(jobs.queue.get(succeeded.id)).resolves.toBeUndefined();
+    await expect(jobs.queue.get(cancelled.id)).resolves.toMatchObject({
+      status: "cancelled",
+    });
+    await jobs.worker.close({ drain: false });
+  });
+
   it("runs, pauses, resumes, and removes memory cron schedules", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.UTC(2026, 0, 1, 0, 0, 30));

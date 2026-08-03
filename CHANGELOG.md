@@ -5,16 +5,22 @@ All notable changes to this project are documented here. The project follows
 
 ## Unreleased
 
+## [0.1.3] - 2026-08-03
+
 ### Added
 
 - Added an explicit browser export for the in-memory queue, with browser usage
-  guidance and a live playground powered by the packaged Enqiu runtime.
-- Added a React queue admin at `/admin` for inspecting and controlling real
-  in-browser jobs.
+  guidance and a live React landing example powered by the packaged Enqiu runtime.
+  Browser queues run in the current tab and are intentionally non-durable;
+  Redis remains a server-runtime driver.
+- Added a React queue playground at `/playground` for composing, running,
+  inspecting, cancelling, retrying, and redriving real in-browser jobs.
 
 ### Fixed
 
 - Allowed strict TypeScript handlers to combine typed inputs with `JobContext`.
+- Made memory-driver cleanup honor requested terminal statuses instead of
+  removing every terminal job.
 
 ## [0.1.2] - 2026-08-02
 

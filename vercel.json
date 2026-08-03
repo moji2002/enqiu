@@ -5,12 +5,12 @@
   "outputDirectory": "site/public",
   "rewrites": [
     {
-      "source": "/admin",
-      "destination": "/admin/index.html"
+      "source": "/playground",
+      "destination": "/playground/index.html"
     },
     {
       "source": "/",
-      "destination": "/landing.html"
+      "destination": "/index.html"
     }
   ]
 }

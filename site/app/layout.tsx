@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "Enqiu — The job queue that feels like a function";
+const title = "Enqiu — Queues without ceremony";
 const description =
-  "A small, type-safe job queue for Node.js and Bun. Start in memory, move to Redis without changing your job API.";
+  "A type-safe job queue for browsers, Node.js, and Bun. Start in memory, move to Redis without changing your job API.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -21,7 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "Enqiu — Queues without ceremony",
       description:
-        "Type-safe background jobs with memory and Redis drivers for Node.js and Bun.",
+        "Type-safe background jobs for browsers, Node.js, and Bun, with memory and Redis drivers.",
       type: "website",
       images: [
         {
@@ -36,7 +36,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: "Enqiu — Queues without ceremony",
       description:
-        "Type-safe background jobs with memory and Redis drivers for Node.js and Bun.",
+        "Type-safe background jobs for browsers, Node.js, and Bun, with memory and Redis drivers.",
       images: ["/og.png"],
     },
   };

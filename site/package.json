@@ -9,13 +9,14 @@
     "sync:landing": "node scripts/sync-landing.mjs",
     "predev": "npm run build:landing",
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
-    "build:admin": "vite build --config admin.vite.config.ts",
-    "build:landing": "npm --prefix .. run build && npm run sync:landing && npm run build:admin",
+    "build:landing-ui": "vite build --config landing.vite.config.ts",
+    "build:playground": "vite build --config playground.vite.config.ts",
+    "build:landing": "npm --prefix .. run build && npm run sync:landing && npm run build:landing-ui && npm run build:playground",
     "prebuild": "npm run build:landing",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public"
+    "lint": "node scripts/lint.mjs"
   },
   "dependencies": {
     "next": "16.2.6",

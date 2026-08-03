@@ -1,7 +1,7 @@
 export default function Home() {
   return (
     <main>
-      <a href="/landing.html">Open the Enqiu documentation</a>
+      <a href="/">Reload the Enqiu landing</a>
     </main>
   );
 }

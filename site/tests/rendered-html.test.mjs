@@ -18,10 +18,10 @@ async function render(pathname = "/") {
         fetch: async (request) => {
           const pathname = new URL(request.url).pathname;
           const asset =
-            pathname === "/landing.html"
-              ? "landing.html"
-              : pathname === "/admin/index.html"
-                ? "admin/index.html"
+            pathname === "/index.html"
+              ? "index.html"
+              : pathname === "/playground/index.html"
+                ? "playground/index.html"
                 : undefined;
           if (!asset) {
             return new Response("Not found", { status: 404 });
@@ -50,80 +50,88 @@ test("serves the upper Enqiu landing page at the site root", async () => {
   assert.match(html, /Background jobs,[\s\S]*called like functions\./);
   assert.match(html, /pnpm add enqiu/);
   assert.match(html, /jobs\.<span class="token-call">sendEmail/);
-  assert.match(html, /Memory \+ Redis/);
-  assert.match(html, /04 · Hono/);
+  assert.match(html, /Start local\. Add durability without rewriting jobs\./);
+  assert.match(html, /04 · Reliability contract/);
+  assert.match(html, /href="\/playground"/);
   assert.match(html, /id="queue-lab"/);
   assert.match(html, /id="run-job"/);
   assert.match(html, /id="job-status"/);
   assert.match(html, /data-stage="queued"/);
-  assert.match(html, /<script type="module" src="\/queue-lab\.js"><\/script>/);
+  assert.match(html, /<script type="module"[^>]+src="\/landing\.js"><\/script>/);
   assert.match(html, /prefers-reduced-motion/);
   assert.doesNotMatch(html, /id="event-list"|id="fail-next"|queue-lane/);
+  assert.doesNotMatch(html, /href="\/admin"|>Admin</i);
   assert.doesNotMatch(html, /const stages =/);
   assert.doesNotMatch(html, /API proposal|Confirmation point|codex-preview/i);
 });
 
-test("runs the playground with the actual Enqiu browser module", async () => {
-  const [source, packageJson, readme] = await Promise.all([
-    readFile(new URL("../../docs/queue-lab.js", import.meta.url), "utf8"),
+test("runs the React landing preview with the actual Enqiu browser module", async () => {
+  const [source, landingSource, packageJson, readme] = await Promise.all([
+    readFile(new URL("../../docs/use-landing-queue.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../docs/landing.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../package.json", import.meta.url), "utf8"),
     readFile(new URL("../../README.md", import.meta.url), "utf8"),
   ]);
   const packageMetadata = JSON.parse(packageJson);
 
-  assert.match(source, /import \{ enqiu \} from "\.\/enqiu\/index\.js"/);
+  assert.match(source, /from "enqiu"/);
   assert.match(source, /enqiu\(\s*\{/);
-  assert.match(source, /jobs\.queue\.on\("added"/);
-  assert.match(source, /jobs\.queue\.on\("started"/);
-  assert.match(source, /jobs\.queue\.on\("progress"/);
-  assert.match(source, /jobs\.queue\.on\("succeeded"/);
+  assert.match(source, /queue\.on\("added"/);
+  assert.match(source, /queue\.on\("started"/);
+  assert.match(source, /queue\.on\("progress"/);
+  assert.match(source, /queue\.on\("succeeded"/);
+  assert.match(landingSource, /createRoot\(/);
+  assert.doesNotMatch(landingSource, /querySelector|addEventListener/);
   assert.equal(packageMetadata.browser, "./dist/index.js");
   assert.equal(packageMetadata.exports["."].browser, "./dist/index.js");
   assert.match(packageMetadata.description, /browsers, Node\.js, and Bun/);
   assert.match(readme, /memory driver runs in modern browsers/i);
 });
 
-test("ships a React admin backed by Enqiu queue state", async () => {
-  const [source, adminHtml, response] = await Promise.all([
-    readFile(new URL("../admin/main.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../public/admin/index.html", import.meta.url), "utf8"),
+test("ships a React playground backed by Enqiu queue state", async () => {
+  const [source, queueSource, playgroundHtml, response, oldAdmin] = await Promise.all([
+    readFile(new URL("../playground/main.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../playground/queue.ts", import.meta.url), "utf8"),
+    readFile(new URL("../public/playground/index.html", import.meta.url), "utf8"),
+    render("/playground"),
     render("/admin"),
   ]);
 
-  assert.match(source, /import\s*\{\s*enqiu/);
-  assert.match(source, /from "enqiu"/);
-  assert.match(source, /jobs\.queue\.stats\(\)/);
-  assert.match(source, /jobs\.queue\.list\(/);
+  assert.match(queueSource, /from "enqiu"/);
+  assert.match(queueSource, /createPlaygroundQueue/);
+  assert.match(queueSource, /reportProgress/);
   assert.match(source, /createRoot\(/);
-  assert.match(adminHtml, /id="root"/);
-  assert.match(adminHtml, /\/admin\/admin\.js/);
+  assert.match(playgroundHtml, /id="root"/);
+  assert.match(playgroundHtml, /\/playground\/playground\.js/);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /id="root"/);
+  assert.equal(oldAdmin.status, 404);
 });
 
 test("keeps one landing source and removes starter-only assets", async () => {
   const [
-    upperLanding,
+    landingEntry,
+    landingSource,
     deployedLanding,
-    upperPlayground,
-    deployedPlayground,
     packageJson,
     worker,
   ] =
     await Promise.all([
       readFile(new URL("../../docs/index.html", import.meta.url), "utf8"),
-      readFile(new URL("../public/landing.html", import.meta.url), "utf8"),
-      readFile(new URL("../../docs/queue-lab.js", import.meta.url), "utf8"),
-      readFile(new URL("../public/queue-lab.js", import.meta.url), "utf8"),
+      readFile(new URL("../../docs/landing.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../public/index.html", import.meta.url), "utf8"),
       readFile(new URL("../package.json", import.meta.url), "utf8"),
       readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
     ]);
 
-  assert.equal(deployedLanding, upperLanding);
-  assert.equal(deployedPlayground, upperPlayground);
+  assert.match(landingEntry, /id="root"/);
+  assert.match(landingEntry, /src="\/landing\.tsx"/);
+  assert.match(landingSource, /function LandingApp/);
+  assert.match(deployedLanding, /src="\/landing\.js"/);
   assert.match(packageJson, /"sync:landing"/);
+  assert.match(packageJson, /"build:landing-ui"/);
   assert.match(packageJson, /"build:landing"/);
-  assert.match(worker, /"\/landing\.html"/);
+  assert.match(worker, /"\/index\.html"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 
   await access(new URL("../public/enqiu/index.js", import.meta.url));

@@ -10,10 +10,11 @@ site/.vinext/
 site/.wrangler/
 
 # Generated deployment mirrors
-site/public/landing.html
+site/public/index.html
+site/public/landing.js
+site/public/landing.css
 site/public/og.png
-site/public/queue-lab.js
-site/public/admin/
+site/public/playground/
 site/public/enqiu/
 
 # Local tooling and caches

@@ -1,6 +1,6 @@
 {
   "name": "enqiu",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A type-safe job queue for browsers, Node.js, and Bun with memory and Redis drivers",
   "type": "module",
   "types": "./dist/index.d.ts",

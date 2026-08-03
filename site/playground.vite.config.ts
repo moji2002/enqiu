@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 const siteRoot = fileURLToPath(new URL("./", import.meta.url));
 
 export default defineConfig({
-  root: fileURLToPath(new URL("./admin/", import.meta.url)),
-  base: "/admin/",
+  root: fileURLToPath(new URL("./playground/", import.meta.url)),
+  base: "/playground/",
   plugins: [react()],
   resolve: {
     alias: {
@@ -14,13 +14,13 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: fileURLToPath(new URL("./public/admin/", import.meta.url)),
+    outDir: fileURLToPath(new URL("./public/playground/", import.meta.url)),
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        entryFileNames: "admin.js",
+        entryFileNames: "playground.js",
         chunkFileNames: "[name].js",
-        assetFileNames: "admin.[ext]",
+        assetFileNames: "playground.[ext]",
       },
     },
   },

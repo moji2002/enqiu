@@ -726,6 +726,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
         }
         return (
           this.memory?.cleanup(compact({
+            status: query.status,
             olderThan: query.olderThan,
             limit: query.limit,
           })) ?? []

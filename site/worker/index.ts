@@ -33,7 +33,7 @@ const worker = {
     const url = new URL(request.url);
 
     if (url.pathname === "/") {
-      const landingUrl = new URL("/landing.html", request.url);
+      const landingUrl = new URL("/index.html", request.url);
       const landing = await env.ASSETS.fetch(
         new Request(landingUrl, { headers: request.headers }),
       );
@@ -42,13 +42,13 @@ const worker = {
       }
     }
 
-    if (url.pathname === "/admin" || url.pathname === "/admin/") {
-      const adminUrl = new URL("/admin/index.html", request.url);
-      const admin = await env.ASSETS.fetch(
-        new Request(adminUrl, { headers: request.headers }),
+    if (url.pathname === "/playground" || url.pathname === "/playground/") {
+      const playgroundUrl = new URL("/playground/index.html", request.url);
+      const playground = await env.ASSETS.fetch(
+        new Request(playgroundUrl, { headers: request.headers }),
       );
-      if (admin.ok) {
-        return admin;
+      if (playground.ok) {
+        return playground;
       }
     }
 
