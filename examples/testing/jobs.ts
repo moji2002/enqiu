@@ -1,7 +1,7 @@
 import {
   enqiu,
   type MemoryEnqiuOptions,
-  type RedisEnqiuOptions,
+  type DriverEnqiuOptions,
 } from "enqiu";
 
 function readName(value: unknown): string {
@@ -32,7 +32,7 @@ export function createJobs(options?: MemoryEnqiuOptions) {
 }
 
 /** Use the same public contract with an injected Redis driver. */
-export function createRedisJobs(options: RedisEnqiuOptions) {
+export function createRedisJobs(options: DriverEnqiuOptions) {
   return enqiu(
     {
       sendWelcome: async (input: unknown) => ({

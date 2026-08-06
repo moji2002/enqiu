@@ -23,12 +23,12 @@ interface MemorySchedule {
 }
 
 export interface MemoryScheduleRegistration {
-  id?: string;
+  id?: string | undefined;
   jobName: string;
   cron: string;
-  timezone?: string;
+  timezone?: string | undefined;
   input: unknown;
-  catchUp?: boolean;
+  catchUp?: boolean | undefined;
   enqueue(input: unknown, occurrence: number): Promise<void>;
 }
 

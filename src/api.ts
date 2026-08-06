@@ -1,5 +1,4 @@
 import {
-  MemoryQueue,
   JobCancelledError,
   JobExpiredError,
   JobFailedError,
@@ -7,11 +6,8 @@ import {
   QueueClosedError,
 } from "./memory.js";
 import type {
-  AddOptions as LegacyAddOptions,
-  Job as LegacyMemoryJob,
-  JobContext as LegacyJobContext,
-  JobHandler as LegacyJobHandler,
-  JobMap as LegacyJobMap,
+  AddOptions,
+  JobContext as HandlerContext,
   JobSnapshot,
   JobStatus,
   MaybePromise,
@@ -19,19 +15,22 @@ import type {
   QueueStats,
   RetryOptions,
 } from "./memory.js";
-import {
-  RedisQueue,
-  type RedisDriver,
-  type RedisAddOptions,
-  type RedisJob as LegacyRedisJob,
-  type RedisQueueEventMap,
-  type RedisQueueOptions as LegacyRedisQueueOptions,
-} from "./redis.js";
+import type {
+  DriverFactory,
+  DriverHandlers,
+  DriverJob,
+  DriverQueueOptions,
+  QueueDriver,
+  ScheduleHandle,
+} from "./driver.js";
+import { createMemoryDriver } from "./drivers/memory.js";
 import {
   JobSerializationError,
   cloneJobValue,
 } from "./codec.js";
-import { MemoryScheduler } from "./memory-scheduler.js";
+import { compact } from "./internal/object.js";
+
+export type { ScheduleHandle, ScheduleSnapshot } from "./driver.js";
 
 const definitionMarker = Symbol("enqiu.job");
 const reservedNames = new Set(["queue", "worker"]);
@@ -219,26 +218,6 @@ export interface ScheduleOptions<Input> {
   catchUp?: boolean;
 }
 
-export interface ScheduleHandle {
-  readonly id: string;
-  readonly nextRunAt: number;
-  pause(): Promise<void>;
-  resume(): Promise<void>;
-  remove(): Promise<void>;
-  refresh(): Promise<ScheduleSnapshot>;
-}
-
-export interface ScheduleSnapshot {
-  id: string;
-  jobName: string;
-  cron: string;
-  timezone: string;
-  status: "active" | "paused";
-  nextRunAt: number;
-  input: unknown;
-  catchUp: boolean;
-}
-
 export interface JobHandle<
   Output = unknown,
   Input = unknown,
@@ -379,22 +358,20 @@ export interface MemoryEnqiuOptions extends SharedEnqiuOptions {
   driver?: undefined;
 }
 
-export interface RedisEnqiuOptions extends SharedEnqiuOptions {
-  driver: RedisDriver;
-  /** Redis processes must explicitly choose producer-only or worker mode. */
+export interface DriverEnqiuOptions extends SharedEnqiuOptions {
+  /** A driver factory, such as the one returned by `redis(client)`. */
+  driver: DriverFactory;
+  /** Shared backends must explicitly choose producer-only or worker mode. */
   worker: false | WorkerOptions;
 }
 
-export type EnqiuOptions = MemoryEnqiuOptions | RedisEnqiuOptions;
+export type EnqiuOptions = MemoryEnqiuOptions | DriverEnqiuOptions;
 
 interface NormalizedDefinition {
   schema: StandardSchemaV1 | undefined;
   run: JobHandler;
   policy: JobPolicyOptions<unknown>;
 }
-
-type RuntimeJobMap = Record<string, LegacyJobHandler<unknown, unknown>>;
-type LegacyJob = LegacyMemoryJob | LegacyRedisJob;
 
 export class JobValidationError extends TypeError {
   readonly issues: readonly StandardSchemaIssue[];
@@ -417,44 +394,39 @@ class PublicJobHandle<
 > implements JobHandle<Output, Input, Name> {
   private resultPromise: Promise<Output> | undefined;
 
-  constructor(private readonly legacy: LegacyJob) {}
+  constructor(private readonly job: DriverJob) {}
 
   get id(): string {
-    return this.legacy.id;
+    return this.job.id;
   }
 
   get name(): Name {
-    return this.legacy.name as Name;
+    return this.job.name as Name;
   }
 
   get input(): Input {
-    return this.legacy.input as Input;
+    return this.job.input as Input;
   }
 
   get status(): JobStatus {
-    return this.legacy.status;
+    return this.job.status;
   }
 
   get deduplicated(): boolean {
-    return this.legacy.deduplicated;
+    return this.job.deduplicated;
   }
 
   get result(): Promise<Output> {
-    this.resultPromise ??= this.legacy.result as Promise<Output>;
+    this.resultPromise ??= this.job.result as Promise<Output>;
     return this.resultPromise;
   }
 
-  async cancel(reason?: string): Promise<boolean> {
-    return this.legacy.cancel(reason);
+  cancel(reason?: string): Promise<boolean> {
+    return this.job.cancel(reason);
   }
 
-  async refresh(): Promise<JobSnapshot<Input, Output, Name>> {
-    if ("refresh" in this.legacy) {
-      return this.legacy.refresh() as Promise<
-        JobSnapshot<Input, Output, Name>
-      >;
-    }
-    return this.legacy.snapshot() as JobSnapshot<Input, Output, Name>;
+  refresh(): Promise<JobSnapshot<Input, Output, Name>> {
+    return this.job.snapshot() as Promise<JobSnapshot<Input, Output, Name>>;
   }
 }
 
@@ -462,16 +434,14 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
   readonly api: JobsApi<Definitions>;
 
   private readonly definitions = new Map<string, NormalizedDefinition>();
-  private readonly memory: MemoryQueue<RuntimeJobMap> | undefined;
-  private readonly redis: RedisQueue<RuntimeJobMap> | undefined;
-  private readonly memoryScheduler: MemoryScheduler | undefined;
+  private readonly driver: QueueDriver;
   private workerRunning: boolean;
 
   constructor(
     definitions: Definitions,
     private readonly options: EnqiuOptions
   ) {
-    const handlers: RuntimeJobMap = {};
+    const handlers: DriverHandlers = {};
     for (const [name, definition] of Object.entries(definitions)) {
       if (reservedNames.has(name)) {
         throw new TypeError(`"${name}" is reserved by enqiu`);
@@ -480,7 +450,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
       this.definitions.set(name, normalized);
       handlers[name] = async (
         input: unknown,
-        context: LegacyJobContext
+        context: HandlerContext
       ): Promise<unknown> => {
         const output = await normalized.run(
           input,
@@ -493,40 +463,26 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
       throw new TypeError("At least one job definition is required");
     }
 
-    const concurrency =
-      options.worker === false ? 1 : options.worker?.concurrency;
-    const autoStart =
-      options.worker === false
-        ? false
-        : options.worker?.autoStart ?? true;
-    const retry = normalizeLegacyRetry(options.retry);
+    const workerOptions = options.worker === false ? undefined : options.worker;
+    const worker = options.worker !== false;
+    const concurrency = worker ? workerOptions?.concurrency : 1;
+    const autoStart = worker ? workerOptions?.autoStart ?? true : false;
 
-    if (options.driver) {
-      this.redis = new RedisQueue(handlers, compact({
-        driver: options.driver,
-        name: options.name,
-        worker: options.worker !== false,
-        concurrency,
-        autoStart,
-        retry: retry as LegacyRedisQueueOptions["retry"],
-        timeout: options.timeout,
-        historyLimit: options.historyLimit,
-        logLimit: options.logLimit,
-      }));
-      this.workerRunning = autoStart && options.worker !== false;
-    } else {
-      this.memory = new MemoryQueue(handlers, compact({
-        name: options.name,
-        concurrency,
-        autoStart,
-        retry,
-        timeout: options.timeout,
-        historyLimit: options.historyLimit,
-        logLimit: options.logLimit,
-      }));
-      this.memoryScheduler = new MemoryScheduler();
-      this.workerRunning = autoStart;
-    }
+    const queueOptions: DriverQueueOptions = compact({
+      name: options.name,
+      worker,
+      concurrency,
+      autoStart,
+      retry: normalizeRetryPolicy(options.retry),
+      timeout: options.timeout,
+      historyLimit: options.historyLimit,
+      logLimit: options.logLimit,
+    });
+
+    this.driver = options.driver
+      ? options.driver.createQueue(handlers, queueOptions)
+      : createMemoryDriver(handlers, queueOptions);
+    this.workerRunning = autoStart && worker;
 
     const target: Record<PropertyKey, unknown> = {};
     for (const name of this.definitions.keys()) {
@@ -536,10 +492,6 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
     target.worker = this.createWorkerApi();
     this.api = Object.freeze(target) as JobsApi<Definitions>;
     this.connectTelemetry();
-  }
-
-  private get queue(): MemoryQueue<RuntimeJobMap> | RedisQueue<RuntimeJobMap> {
-    return this.redis ?? (this.memory as MemoryQueue<RuntimeJobMap>);
   }
 
   private createCallable(name: string): JobCallable<
@@ -561,15 +513,13 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
       const value = cloneJobValue(
         await validateInput(name, definition.schema, input)
       );
-      const legacy = this.addLegacy(
+      const job = this.driver.add(
         name,
         value,
-        toLegacyOptions(options, definition.policy, name, value)
+        toAddOptions(options, definition.policy, name, value)
       );
-      if ("accepted" in legacy) {
-        await legacy.accepted;
-      }
-      return new PublicJobHandle(legacy);
+      await job.accepted;
+      return new PublicJobHandle(job);
     };
 
     const bulk = async (
@@ -584,30 +534,20 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
           cloneJobValue(await validateInput(name, definition.schema, input))
         )
       );
-      const handles = values.map((value, index) => {
-        const id = options.ids?.[index];
+      const jobs = values.map((value, index) => {
         const submitOptions = compact({
           ...options,
           ids: undefined,
-          id,
+          id: options.ids?.[index],
         }) as SubmitOptions;
-        return this.addLegacy(
+        return this.driver.add(
           name,
           value,
-          toLegacyOptions(
-            submitOptions,
-            definition.policy,
-            name,
-            value
-          )
+          toAddOptions(submitOptions, definition.policy, name, value)
         );
       });
-      await Promise.all(
-        handles.map((handle) =>
-          "accepted" in handle ? handle.accepted : Promise.resolve()
-        )
-      );
-      return handles.map((handle) => new PublicJobHandle(handle));
+      await Promise.all(jobs.map((job) => job.accepted));
+      return jobs.map((job) => new PublicJobHandle(job));
     };
 
     const schedule = async (
@@ -616,30 +556,14 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
       const value = cloneJobValue(
         await validateInput(name, definition.schema, options.input)
       );
-      if (this.redis) {
-        return this.redis.upsertSchedule({
-          ...options,
-          input: value,
-          jobName: name,
-          submit: toLegacyOptions(
-            {},
-            definition.policy,
-            name,
-            value
-          ) as RedisAddOptions,
-        });
-      }
-      const scheduleId = options.id?.trim() || name;
-      return (this.memoryScheduler as MemoryScheduler).upsert({
-        ...options,
-        input: value,
+      return this.driver.upsertSchedule({
+        id: options.id,
         jobName: name,
-        enqueue: async (scheduledInput, occurrence) => {
-          const handle = await callable(scheduledInput, {
-            id: `${this.options.name ?? "default"}:schedule:${scheduleId}:${occurrence}`,
-          });
-          void handle;
-        },
+        cron: options.cron,
+        timezone: options.timezone,
+        input: value,
+        catchUp: options.catchUp,
+        submit: toAddOptions({}, definition.policy, name, value),
       });
     };
 
@@ -661,89 +585,25 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
   private createQueueApi(): QueueApi<Definitions> {
     return Object.freeze({
       get: async (id: string) =>
-        (await this.queue.get(id)) as
+        (await this.driver.get(id)) as
           | AnyJobSnapshot<Definitions>
           | undefined,
-      list: async (query: JobListQuery = {}) => {
-        if (this.redis) {
-          return this.redis.list(query) as Promise<
-            JobListPage<AnyJobSnapshot<Definitions>>
-          >;
-        }
-        let jobs = this.memory?.list(query.status) ?? [];
-        if (query.name) {
-          jobs = jobs.filter((item) => item.name === query.name);
-        }
-        if (query.after !== undefined) {
-          jobs = jobs.filter((item) => item.createdAt > query.after!);
-        }
-        if (query.before !== undefined) {
-          jobs = jobs.filter((item) => item.createdAt < query.before!);
-        }
-        const limit = query.limit ?? 100;
-        return {
-          jobs: jobs.slice(0, limit) as AnyJobSnapshot<Definitions>[],
-        };
-      },
-      stats: async () =>
-        this.redis ? this.redis.stats() : (this.memory as MemoryQueue<RuntimeJobMap>).stats,
-      pause: async () => {
-        if (this.redis) {
-          await this.redis.pauseQueue();
-        } else {
-          this.memory?.pause();
-        }
-      },
-      resume: async () => {
-        if (this.redis) {
-          await this.redis.resumeQueue();
-        } else {
-          this.memory?.start();
-        }
-      },
-      setConcurrency: async (limit: number) => {
-        if (this.redis) {
-          await this.redis.setGlobalConcurrency(limit);
-          return;
-        }
-        (this.memory as MemoryQueue<RuntimeJobMap>).concurrency = limit;
-      },
-      redrive: async (id: string) => {
-        if (this.redis) {
-          return new PublicJobHandle(
-            (await this.redis.redrive(id)) as LegacyJob
-          );
-        }
-        const handle = this.memory?.retry(id);
-        if (!handle) {
-          throw new Error(`Job "${id}" cannot be redriven`);
-        }
-        return new PublicJobHandle(handle);
-      },
-      cleanup: async (query: CleanupQuery = {}) => {
-        if (this.redis) {
-          return this.redis.cleanup(query);
-        }
-        return (
-          this.memory?.cleanup(compact({
-            status: query.status,
-            olderThan: query.olderThan,
-            limit: query.limit,
-          })) ?? []
-        );
-      },
+      list: async (query: JobListQuery = {}) =>
+        (await this.driver.list(query)) as JobListPage<
+          AnyJobSnapshot<Definitions>
+        >,
+      stats: () => this.driver.stats(),
+      pause: () => this.driver.pauseQueue(),
+      resume: () => this.driver.resumeQueue(),
+      setConcurrency: (limit: number) =>
+        this.driver.setQueueConcurrency(limit),
+      redrive: async (id: string) =>
+        new PublicJobHandle(await this.driver.redrive(id)),
+      cleanup: (query: CleanupQuery = {}) => this.driver.cleanup(query),
       on: <Event extends keyof QueueEventMap>(
         event: Event,
         listener: (payload: QueueEventMap[Event]) => void
-      ) => {
-        const events = this.queue as {
-          on<EventName extends keyof RedisQueueEventMap>(
-            event: EventName,
-            listener: (payload: RedisQueueEventMap[EventName]) => void
-          ): () => void;
-        };
-        return events.on(event, listener);
-      },
+      ) => this.driver.on(event, listener),
     } satisfies QueueApi<Definitions>);
   }
 
@@ -754,29 +614,20 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
         return facade.workerRunning;
       },
       start: async (options: WorkerStartOptions = {}) => {
-        if (options.concurrency !== undefined) {
-          if (facade.redis) {
-            facade.redis.setWorkerConcurrency(options.concurrency);
-          } else {
-            (facade.memory as MemoryQueue<RuntimeJobMap>).concurrency =
-              options.concurrency;
-          }
-        }
-        facade.queue.start();
+        await facade.driver.startWorker(options.concurrency);
         facade.workerRunning = true;
       },
       pause: async () => {
-        facade.queue.pause();
+        await facade.driver.pauseWorker();
         facade.workerRunning = false;
       },
       resume: async () => {
-        facade.queue.start();
+        await facade.driver.startWorker();
         facade.workerRunning = true;
       },
-      onIdle: async () => facade.queue.onIdle(),
+      onIdle: () => facade.driver.onIdle(),
       close: async (options?: { drain?: boolean }) => {
-        await facade.queue.close(options);
-        facade.memoryScheduler?.close();
+        await facade.driver.close(options);
         facade.workerRunning = false;
       },
     } satisfies WorkerApi);
@@ -796,14 +647,8 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
       "cancelled",
       "expired",
     ];
-    const source = this.queue as {
-      on(
-        event: keyof QueueEventMap,
-        listener: (payload: QueueEventMap[keyof QueueEventMap]) => void
-      ): () => void;
-    };
     for (const event of events) {
-      source.on(event, (payload: QueueEventMap[keyof QueueEventMap]) => {
+      this.driver.on(event, (payload: QueueEventMap[keyof QueueEventMap]) => {
         const snapshot =
           "job" in Object(payload)
             ? (payload as QueueEventMap["retry"]).job
@@ -818,24 +663,6 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
     }
   }
 
-  private addLegacy(
-    name: string,
-    value: unknown,
-    options: LegacyAddOptions
-  ): LegacyJob {
-    if (this.redis) {
-      return this.redis.add(
-        name,
-        value,
-        options as RedisAddOptions
-      );
-    }
-    return (this.memory as MemoryQueue<RuntimeJobMap>).add(
-      name,
-      value,
-      options
-    );
-  }
 }
 
 export function enqiu<const Definitions extends JobDefinitions>(
@@ -844,7 +671,7 @@ export function enqiu<const Definitions extends JobDefinitions>(
 ): JobsApi<Definitions>;
 export function enqiu<const Definitions extends JobDefinitions>(
   definitions: Definitions,
-  options: RedisEnqiuOptions
+  options: DriverEnqiuOptions
 ): JobsApi<Definitions>;
 export function enqiu<const Definitions extends JobDefinitions>(
   definitions: Definitions,
@@ -921,7 +748,7 @@ function isStandardSchema(value: unknown): value is StandardSchemaV1 {
   );
 }
 
-function normalizeLegacyRetry(
+function normalizeRetryPolicy(
   value: number | RetryPolicy | undefined
 ): number | RetryOptions | undefined {
   if (typeof value === "number" || value === undefined) {
@@ -937,12 +764,12 @@ function normalizeLegacyRetry(
   });
 }
 
-function toLegacyOptions(
+function toAddOptions(
   options: SubmitOptions,
   policy: JobPolicyOptions<unknown>,
   name: string,
   input: unknown
-): LegacyAddOptions {
+): AddOptions {
   const priority =
     typeof options.priority === "string"
       ? { low: -10, normal: 0, high: 10 }[options.priority]
@@ -991,7 +818,7 @@ function toLegacyOptions(
       : undefined,
     delay: options.delay,
     priority,
-    retry: normalizeLegacyRetry(options.retry ?? policy.retry),
+    retry: normalizeRetryPolicy(options.retry ?? policy.retry),
     timeout: options.timeout ?? policy.timeout,
     expiresIn: options.expiresIn ?? policy.expiresIn,
     concurrency,
@@ -1009,27 +836,27 @@ function resolvePolicyKey(name: string, value: string): string {
 }
 
 function createContext(
-  legacy: LegacyJobContext,
+  handler: HandlerContext,
   queue: string,
   telemetry: Telemetry | undefined
 ): JobContext {
-  const log = createLogger(legacy, queue, telemetry);
+  const log = createLogger(handler, queue, telemetry);
   return {
-    id: legacy.id,
-    name: legacy.name,
-    attempt: legacy.attempt,
-    signal: legacy.signal,
+    id: handler.id,
+    name: handler.name,
+    attempt: handler.attempt,
+    signal: handler.signal,
     reportProgress: async (progress: Progress) => {
       validateProgress(progress);
       const safeProgress = cloneJobValue(progress);
-      legacy.progress(safeProgress);
+      handler.progress(safeProgress);
       telemetry?.emit({
         type: "job.progress",
         queue,
         timestamp: Date.now(),
         fields: {
-          jobId: legacy.id,
-          jobName: legacy.name,
+          jobId: handler.id,
+          jobName: handler.name,
           progress: safeProgress,
         },
       });
@@ -1039,7 +866,7 @@ function createContext(
 }
 
 function createLogger(
-  context: LegacyJobContext,
+  context: HandlerContext,
   queue: string,
   telemetry: Telemetry | undefined
 ): JobLogger {
@@ -1102,21 +929,6 @@ function validateProgress(progress: Progress): void {
       "Progress requires 0 <= completed <= total and total > 0"
     );
   }
-}
-
-type Compact<T> = {
-  [Key in keyof T as undefined extends T[Key] ? never : Key]: T[Key];
-} & {
-  [Key in keyof T as undefined extends T[Key] ? Key : never]?:
-    Exclude<T[Key], undefined>;
-};
-
-function compact<T extends Record<PropertyKey, unknown>>(
-  value: T
-): Compact<T> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined)
-  ) as Compact<T>;
 }
 
 export {

@@ -34,7 +34,7 @@ export type {
   Progress,
   EnqiuOptions,
   QueueApi,
-  RedisEnqiuOptions,
+  DriverEnqiuOptions,
   RetryPolicy,
   ScheduleHandle,
   ScheduleOptions,

@@ -49,6 +49,20 @@ import {
   parseCron,
   validateTimeZone,
 } from "./cron.js";
+import { compact } from "./internal/object.js";
+import type {
+  DriverCleanupQuery,
+  DriverFactory,
+  DriverHandlers,
+  DriverJob,
+  DriverListPage,
+  DriverListQuery,
+  DriverQueueOptions,
+  DriverScheduleRegistration,
+  QueueDriver,
+  ScheduleHandle,
+  ScheduleSnapshot,
+} from "./driver.js";
 
 export interface RedisCommandClient {
   /** Bun's native RedisClient shape. */
@@ -68,13 +82,25 @@ export interface RedisDriverOptions {
   retention?: number;
 }
 
-export interface RedisDriver {
-  readonly kind: "redis";
+/** Connection and tuning values every RedisQueue instance reads. */
+export interface RedisDriverConfig {
   readonly client: RedisCommandClient;
   readonly prefix: string;
   readonly pollInterval: number;
   readonly visibilityTimeout: number;
   readonly retention: number;
+}
+
+/**
+ * What `redis()` returns and `enqiu()` accepts.
+ *
+ * It carries its own queue constructor, so the facade depends on the
+ * `DriverFactory` type rather than on this module. That missing import edge
+ * is what lets a bundler drop this file — and the Lua it holds — from an
+ * application that only uses the in-memory driver.
+ */
+export interface RedisDriver extends RedisDriverConfig, DriverFactory {
+  readonly kind: "redis";
 }
 
 export interface RedisRetryOptions {
@@ -89,7 +115,7 @@ export interface RedisAddOptions
 
 export interface RedisQueueOptions
   extends Omit<QueueOptions, "retry"> {
-  driver: RedisDriver;
+  driver: RedisDriverConfig;
   /**
    * Start a local worker for these handlers. Set `false` in producer-only
    * processes. @default true
@@ -134,35 +160,14 @@ export interface RedisListPage {
   cursor?: string;
 }
 
-export interface RedisScheduleRegistration {
-  id?: string;
-  jobName: string;
-  cron: string;
-  timezone?: string;
-  input: unknown;
-  catchUp?: boolean;
+export interface RedisScheduleRegistration
+  extends Omit<DriverScheduleRegistration, "submit"> {
+  /** Redis cannot carry a `when` predicate across the process boundary. */
   submit: RedisAddOptions;
 }
 
-export interface RedisScheduleSnapshot {
-  id: string;
-  jobName: string;
-  cron: string;
-  timezone: string;
-  status: "active" | "paused";
-  nextRunAt: number;
-  input: unknown;
-  catchUp: boolean;
-}
-
-export interface RedisScheduleHandle {
-  readonly id: string;
-  readonly nextRunAt: number;
-  pause(): Promise<void>;
-  resume(): Promise<void>;
-  remove(): Promise<void>;
-  refresh(): Promise<RedisScheduleSnapshot>;
-}
+export type RedisScheduleSnapshot = ScheduleSnapshot;
+export type RedisScheduleHandle = ScheduleHandle;
 
 interface RedisJobRecord {
   id: string;
@@ -967,13 +972,20 @@ export function redis(
   positiveNumber("visibilityTimeout", visibilityTimeout);
   positiveNumber("retention", retention);
 
-  return {
-    kind: "redis",
+  const config: RedisDriverConfig = {
     client,
     prefix,
     pollInterval,
     visibilityTimeout,
     retention,
+  };
+  return {
+    kind: "redis",
+    ...config,
+    createQueue: (
+      handlers: DriverHandlers,
+      queueOptions: DriverQueueOptions
+    ): QueueDriver => new RedisDriverAdapter(handlers, config, queueOptions),
   };
 }
 
@@ -981,7 +993,7 @@ export class RedisQueue<Jobs extends JobMap> {
   readonly name: string;
 
   private readonly handlers: Jobs;
-  private readonly driver: RedisDriver;
+  private readonly driver: RedisDriverConfig;
   private readonly workerEnabled: boolean;
   private concurrency: number;
   private readonly retry: NormalizedRedisRetry;
@@ -2310,6 +2322,147 @@ class RedisJobHandle<Output, Input, Name extends string>
     return value as JobSnapshot<Input, Output, Name>;
   }
 
+}
+
+/** Presents a Redis job through the driver contract. */
+class RedisDriverJob implements DriverJob {
+  constructor(private readonly job: RedisJob) {}
+
+  get id(): string {
+    return this.job.id;
+  }
+
+  get name(): string {
+    return this.job.name;
+  }
+
+  get input(): unknown {
+    return this.job.input;
+  }
+
+  get status(): JobStatus {
+    return this.job.status;
+  }
+
+  get deduplicated(): boolean {
+    return this.job.deduplicated;
+  }
+
+  get accepted(): Promise<void> {
+    return this.job.accepted;
+  }
+
+  get result(): Promise<unknown> {
+    return this.job.result;
+  }
+
+  cancel(reason?: string): Promise<boolean> {
+    return this.job.cancel(reason);
+  }
+
+  snapshot(): Promise<JobSnapshot> {
+    return this.job.refresh();
+  }
+}
+
+class RedisDriverAdapter implements QueueDriver {
+  private readonly queue: RedisQueue<DriverHandlers>;
+
+  constructor(
+    handlers: DriverHandlers,
+    config: RedisDriverConfig,
+    options: DriverQueueOptions
+  ) {
+    this.queue = new RedisQueue(
+      handlers,
+      compact({
+        driver: config,
+        name: options.name,
+        worker: options.worker,
+        concurrency: options.concurrency,
+        autoStart: options.autoStart,
+        // `when` predicates cannot cross a process boundary, so the Redis
+        // driver accepts only the serializable part of a retry policy.
+        retry: options.retry as RedisQueueOptions["retry"],
+        timeout: options.timeout,
+        historyLimit: options.historyLimit,
+        logLimit: options.logLimit,
+      })
+    );
+  }
+
+  add(name: string, input: unknown, options: AddOptions): DriverJob {
+    return new RedisDriverJob(
+      this.queue.add(name, input, options as RedisAddOptions)
+    );
+  }
+
+  get(id: string): Promise<JobSnapshot | undefined> {
+    return this.queue.get(id);
+  }
+
+  list(query: DriverListQuery): Promise<DriverListPage> {
+    return this.queue.list(query);
+  }
+
+  stats(): Promise<QueueStats> {
+    return this.queue.stats();
+  }
+
+  async redrive(id: string): Promise<DriverJob> {
+    return new RedisDriverJob(await this.queue.redrive(id));
+  }
+
+  cleanup(query: DriverCleanupQuery): Promise<string[]> {
+    return this.queue.cleanup(query);
+  }
+
+  upsertSchedule(
+    registration: DriverScheduleRegistration
+  ): Promise<ScheduleHandle> {
+    return this.queue.upsertSchedule({
+      ...registration,
+      submit: registration.submit as RedisAddOptions,
+    });
+  }
+
+  pauseQueue(): Promise<void> {
+    return this.queue.pauseQueue();
+  }
+
+  resumeQueue(): Promise<void> {
+    return this.queue.resumeQueue();
+  }
+
+  setQueueConcurrency(limit: number): Promise<void> {
+    return this.queue.setGlobalConcurrency(limit);
+  }
+
+  async startWorker(concurrency?: number): Promise<void> {
+    if (concurrency !== undefined) {
+      this.queue.setWorkerConcurrency(concurrency);
+    }
+    this.queue.start();
+  }
+
+  async pauseWorker(): Promise<void> {
+    this.queue.pause();
+  }
+
+  onIdle(): Promise<void> {
+    return this.queue.onIdle();
+  }
+
+  close(options?: { drain?: boolean }): Promise<void> {
+    return this.queue.close(options);
+  }
+
+  on<Event extends keyof QueueEventMap>(
+    event: Event,
+    listener: (payload: QueueEventMap[Event]) => void
+  ): () => void {
+    return this.queue.on(event, listener);
+  }
 }
 
 class RedisScheduleHandleImpl implements RedisScheduleHandle {
