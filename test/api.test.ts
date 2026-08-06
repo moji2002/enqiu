@@ -82,6 +82,33 @@ describeRedis("enqiu over BullMQ", () => {
       expectTypeOf(handle.result).resolves.toMatchTypeOf<{ length: number }>();
     });
 
+    it("correlates the job name with its own input and output", async () => {
+      const jobs = make({
+        sendEmail: job({
+          input: z.object({ to: z.string() }),
+          run: async (input) => ({ delivered: true, to: input.to }),
+        }),
+        resizeImage: job({
+          input: z.object({ key: z.string(), width: z.number() }),
+          run: async (input) => ({ bytes: input.width * 10 }),
+        }),
+      });
+
+      // BullMQ's own generics are per queue — Queue<DataType, ResultType,
+      // NameType> — so with two job types on one queue the data type becomes a
+      // union and this pairing compiles there. Here it must not.
+      await expect(
+        // @ts-expect-error resizeImage's payload does not belong to sendEmail
+        jobs.sendEmail({ key: "photo.jpg", width: 800 })
+      ).rejects.toBeInstanceOf(JobValidationError);
+
+      const handle = await jobs.resizeImage({ key: "p.jpg", width: 4 });
+      const result = await handle.result;
+      // The result is this job's, not a union across the queue.
+      expectTypeOf(result).toMatchTypeOf<{ bytes: number }>();
+      expect(result.bytes).toBe(40);
+    });
+
     it("supports a bare handler with no schema", async () => {
       const jobs = make({ double: async (value: number) => value * 2 });
       const handle = await jobs.double(21);
@@ -406,13 +433,8 @@ describeRedis("enqiu over BullMQ", () => {
       jobs.queue.on("added", (s) => seen.push(`added:${s.id}`));
       jobs.queue.on("started", (s) => seen.push(`started:${s.id}`));
 
-      // The first job warms the stream. BullMQ's QueueEvents begins reading
-      // from the present, so a job added in the same breath as the very first
-      // subscription can legitimately beat the reader to it.
-      const warm = await jobs.work(1);
-      await warm.result;
-      await waitFor(() => seen.some((e) => e.startsWith("succeeded:")));
-
+      // No warm-up: the stream opens from a captured tail, so even the very
+      // first job submitted after subscribing must be seen.
       const handle = await jobs.work(2);
       await handle.result;
       await waitFor(() => seen.includes(`succeeded:${handle.id}`));
@@ -528,6 +550,143 @@ describeRedis("enqiu over BullMQ", () => {
       expect(new Set(processed).size).toBe(20);
       expect(byWorker.size).toBe(2);
       expect((await a.queue.stats()).succeeded).toBe(20);
+    });
+  });
+
+  describe("escape hatch and payload checking", () => {
+    it("exposes the BullMQ objects underneath", async () => {
+      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      expect(jobs.bull.queue.name).toBeTypeOf("string");
+      expect(typeof jobs.bull.queue.getJobCounts).toBe("function");
+      expect(jobs.bull.worker).toBeUndefined();
+
+      const withWorker = make({ work: async (n: number) => n });
+      expect(typeof withWorker.bull.worker?.run).toBe("function");
+    });
+
+    it("reserves `bull` as a job name", () => {
+      expect(() =>
+        enqiu({ bull: async () => 1 }, {
+          connection: connectionFrom(redisUrl as string),
+        })
+      ).toThrow('"bull" is reserved by enqiu');
+    });
+
+    it("skips the payload check when asked", async () => {
+      const strict = make({ work: async (v: unknown) => v }, { worker: false });
+      await expect(strict.work({ fn: () => 1 })).rejects.toThrow(
+        "function is unsupported"
+      );
+
+      // Off, the value goes straight to BullMQ's serialiser instead.
+      const lean = make({ work: async (v: unknown) => v }, {
+        worker: false,
+        validatePayloads: false,
+      });
+      const handle = await lean.work({ ok: 1 });
+      expect((await handle.refresh()).input).toEqual({ ok: 1 });
+    });
+  });
+
+  describe("argument validation", () => {
+    it("rejects a malformed job definition", () => {
+      expect(() => job(undefined as never)).toThrow("requires a definition");
+      expect(() =>
+        job({ input: {} as never, run: async () => 1 })
+      ).toThrow("must implement Standard Schema");
+      expect(() =>
+        job({ input: z.object({}), run: "nope" as never })
+      ).toThrow("job.run must be a function");
+      expect(() =>
+        enqiu({ work: { bad: true } as never }, {
+          connection: connectionFrom(redisUrl as string),
+        })
+      ).toThrow("handler or a definition created with job()");
+    });
+
+    it("requires a connection", () => {
+      expect(() =>
+        enqiu({ work: async () => 1 }, {} as never)
+      ).toThrow("requires a BullMQ connection");
+    });
+
+    it("rejects out-of-range queue arguments", async () => {
+      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      await expect(jobs.queue.setConcurrency(0)).rejects.toThrow(
+        "concurrency must be a positive integer"
+      );
+      await expect(jobs.queue.cleanup({ olderThan: -1 })).rejects.toThrow(
+        "non-negative finite"
+      );
+      await expect(
+        jobs.work(1, { retry: { attempts: 0 } })
+      ).rejects.toThrow("retry.attempts must be a positive integer");
+    });
+
+    it("accepts every documented submit option shape", async () => {
+      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      const byDate = await jobs.work(1, { delay: new Date(Date.now() + 60_000) });
+      expect((await byDate.refresh()).status).toBe("scheduled");
+
+      const numeric = await jobs.work(2, { priority: 5 });
+      expect(numeric.id).toBeTypeOf("string");
+
+      const named = await jobs.work(3, { priority: "low" });
+      expect(named.id).toBeTypeOf("string");
+
+      const backoff = await jobs.work(4, {
+        retry: { attempts: 2, backoff: { type: "exponential", delay: 10 } },
+      });
+      expect(backoff.id).toBeTypeOf("string");
+
+      const ttl = await jobs.work(5, {
+        idempotencyKey: "k",
+        idempotencyTtl: 1_000,
+      });
+      expect(ttl.id).toBeTypeOf("string");
+    });
+
+    it("lists by each status and prunes cancellation markers", async () => {
+      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      const handle = await jobs.work(1);
+      await handle.cancel();
+
+      for (const status of ["queued", "scheduled", "running", "succeeded", "failed"] as const) {
+        const page = await jobs.queue.list({ status, limit: 10 });
+        expect(Array.isArray(page.jobs)).toBe(true);
+      }
+
+      // olderThan 0 makes every marker stale, so the hash is emptied.
+      await jobs.queue.cleanup({ olderThan: 0 });
+      expect(await jobs.queue.get(handle.id)).toBeUndefined();
+    });
+
+    it("logs at every level", async () => {
+      const jobs = make({
+        noisy: job({
+          input: z.object({}),
+          run: async (_i, context) => {
+            context.log.debug("d");
+            context.log.info("i");
+            context.log.warn("w");
+            context.log.error("e");
+            return 1;
+          },
+        }),
+      });
+      await expect((await jobs.noisy({})).result).resolves.toBe(1);
+    });
+
+    it("exposes name and input on the handle, and resumes a paused worker", async () => {
+      const jobs = make({ work: async (n: number) => n });
+      const handle = await jobs.work(9);
+      expect(handle.name).toBe("work");
+      expect(handle.input).toBe(9);
+
+      await jobs.worker.pause();
+      await jobs.worker.resume();
+      expect(jobs.worker.running).toBe(true);
+      await expect(handle.result).resolves.toBe(9);
     });
   });
 });

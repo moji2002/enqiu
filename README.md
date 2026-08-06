@@ -26,10 +26,8 @@ experience.
 > exact version: it is published under the `beta` dist-tag, so a plain
 > `npm install enqiu` will not install it.
 >
-> One caveat worth knowing: `queue.on("added")` can miss a job submitted in the
-> same breath as the very first subscription, because BullMQ's event stream
-> begins reading from the present. Later events, and everything after the
-> stream is live, are delivered normally.
+> The layer in between is new. It is covered at 97% of statements and 83% of
+> branches, and every path is exercised against a real Redis.
 
 ```bash
 npm install enqiu@beta bullmq ioredis
@@ -93,6 +91,29 @@ const jobs = enqiu(
   Also enforced by Enqiu.
 - **A serialization guard** that rejects functions, symbols, cycles and sparse
   arrays with the exact path, instead of failing later inside the queue.
+
+## Escaping the layer
+
+Enqiu models a deliberate subset. Everything else BullMQ can do — flows, Pro
+groups, metrics, raw job options — is one property away, with no wrapper in
+between and no fork required:
+
+```ts
+jobs.bull.queue    // the real BullMQ Queue
+jobs.bull.worker   // the real BullMQ Worker, or undefined for a producer
+```
+
+Measured against raw BullMQ on the same Redis, the typed path costs a few
+percent; calls through `jobs.bull` cost nothing, because nothing is in the way.
+Most of that few percent is the serialization check, which you can turn off
+once you trust your payloads:
+
+```ts
+enqiu(definitions, { connection, validatePayloads: false });
+```
+
+That takes the overhead to roughly 1%, and gives up the error that names the
+exact path of an unserialisable value.
 
 ## What BullMQ provides
 

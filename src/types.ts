@@ -7,7 +7,7 @@
  * the README.
  */
 
-import type { ConnectionOptions } from "bullmq";
+import type { ConnectionOptions, Queue, Worker } from "bullmq";
 import type { SerializedError, StandardSchemaIssue } from "./errors.js";
 
 export type { SerializedError, StandardSchemaIssue } from "./errors.js";
@@ -352,6 +352,17 @@ export interface EnqiuOptions {
   timeout?: number;
   /** Structured log lines retained per job. @default 100 */
   logLimit?: number;
+  /**
+   * Check that job inputs and results are storable before handing them over.
+   *
+   * Costs about 1.4us per job — roughly two thirds of this layer's total
+   * overhead — and buys an error naming the exact path, rather than whatever
+   * the serialiser says once the value is already on its way to Redis. Turn it
+   * off if you have measured that it matters and trust your payloads.
+   *
+   * @default true
+   */
+  validatePayloads?: boolean;
   telemetry?: Telemetry;
 }
 
@@ -366,4 +377,16 @@ export type JobsApi<Definitions extends JobDefinitions> = {
 } & {
   readonly queue: QueueApi<Definitions>;
   readonly worker: WorkerApi;
+  /**
+   * The BullMQ objects underneath, unwrapped.
+   *
+   * Enqiu's own surface is the typed, validated path. Everything BullMQ can do
+   * that Enqiu does not model — flows, Pro groups, metrics, raw options — is
+   * reachable here without a fork, and calls through it cost nothing extra
+   * because there is no layer in the way.
+   */
+  readonly bull: {
+    readonly queue: Queue;
+    readonly worker: Worker | undefined;
+  };
 };

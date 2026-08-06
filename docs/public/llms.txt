@@ -46,6 +46,11 @@ npm install enqiu@beta bullmq ioredis
 - `worker: false` creates a producer-only process that enqueues without running handlers; calling `worker.start()` on it throws.
 - Schemas are optional — a plain typed handler infers its own result type.
 
+## Escaping the layer
+
+- `jobs.bull.queue` and `jobs.bull.worker` expose the underlying BullMQ objects. Use them for anything Enqiu does not model — flows, Pro groups, metrics, raw options. Calls through them have no wrapper overhead.
+- `validatePayloads: false` in the options skips Enqiu's JSON-safety check, taking the layer's overhead to roughly 1% at the cost of the precise error path.
+
 ## Not available
 
 Do not generate code using these; they do not exist in Enqiu.

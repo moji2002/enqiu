@@ -61,7 +61,7 @@ import type {
   WorkerStartOptions,
 } from "./types.js";
 
-const reservedNames = new Set(["queue", "worker"]);
+const reservedNames = new Set(["queue", "worker", "bull"]);
 
 /** Declare a job with a Standard Schema input and per-job policies. */
 export function job<const Schema extends StandardSchemaV1, Output>(
@@ -343,6 +343,13 @@ interface MarkerStore {
   hget(key: string, field: string): Promise<string | null>;
   hgetall(key: string): Promise<Record<string, string>>;
   hdel(key: string, ...fields: string[]): Promise<unknown>;
+  xrevrange(
+    key: string,
+    end: string,
+    start: string,
+    count: string,
+    limit: string
+  ): Promise<unknown>;
 }
 
 /** The parts of the facade a handle needs, without its generic parameter. */
@@ -359,10 +366,10 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
   private readonly queue: Queue;
   private readonly queueName: string;
   private readonly logLimit: number;
+  private readonly check: <T>(value: T) => T;
   private readonly cancelled = new Set<string>();
   private worker: Worker | undefined;
-  private events: QueueEvents | undefined;
-  private eventsReady: Promise<void> | undefined;
+  private events: Promise<QueueEvents> | undefined;
   private workerRunning = false;
   private closed = false;
 
@@ -385,6 +392,8 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
 
     this.queueName = options.name ?? "default";
     this.logLimit = options.logLimit ?? 100;
+    this.check =
+      options.validatePayloads === false ? (value) => value : assertJobValue;
     this.queue = new Queue(this.queueName, this.bullBase());
 
     const workerOptions =
@@ -417,6 +426,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     }
     target.queue = this.createQueueApi();
     target.worker = this.createWorkerApi();
+    target.bull = Object.freeze({ queue: this.queue, worker: this.worker });
     this.api = Object.freeze(target) as JobsApi<Definitions>;
   }
 
@@ -472,12 +482,12 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     const execution = Promise.resolve(definition.run(bull.data, context));
 
     if (timeout === undefined) {
-      return assertJobValue(await execution);
+      return this.check(await execution);
     }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return assertJobValue(
+      return this.check(
         await Promise.race([
           execution,
           new Promise<never>((_, reject) => {
@@ -498,22 +508,42 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     if (this.closed) throw new QueueClosedError(this.queueName);
   }
 
-  /** Lazily opened: only awaited results and subscriptions need the stream. */
-  private queueEvents(): QueueEvents {
-    if (!this.events) {
-      this.events = new QueueEvents(this.queueName, this.bullBase());
-      // Its connection opens asynchronously. A caller that subscribes and
-      // immediately submits would otherwise miss the first events, so
-      // submissions wait for the stream to be live once anyone is listening.
-      this.eventsReady = this.events.waitUntilReady();
-    }
+  /**
+   * Lazily opened, and opened from a known point in the stream.
+   *
+   * BullMQ's QueueEvents defaults to reading from the present, which it
+   * evaluates when its read loop starts rather than when it is constructed.
+   * A caller that subscribed and immediately submitted could therefore miss
+   * its own `added` event. Capturing the stream tail first and passing it as
+   * `lastEventId` closes that window: nothing appended after this point can
+   * fall between the two.
+   */
+  private queueEvents(): Promise<QueueEvents> {
+    this.events ??= (async () => {
+      const client = await this.markers();
+      const tail = await client.xrevrange(
+        this.queue.toKey("events"),
+        "+",
+        "-",
+        "COUNT",
+        "1"
+      );
+      const first = Array.isArray(tail) ? (tail[0] as unknown[]) : undefined;
+      const lastEventId = first ? String(first[0]) : "0-0";
+      const events = new QueueEvents(this.queueName, {
+        ...this.bullBase(),
+        lastEventId,
+      });
+      await events.waitUntilReady();
+      return events;
+    })();
     return this.events;
   }
 
   async awaitResult(bull: BullJob): Promise<unknown> {
     const id = String(bull.id);
     try {
-      return await bull.waitUntilFinished(this.queueEvents());
+      return await bull.waitUntilFinished(await this.queueEvents());
     } catch (cause) {
       if (this.cancelled.has(id) || (await this.readCancelled(id))) {
         throw new JobCancelledError(id);
@@ -540,7 +570,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
   }
 
   private cancelledKey(): string {
-    return `${this.options.prefix ?? "bull"}:${this.queueName}:enqiu:cancelled`;
+    return this.queue.toKey("enqiu:cancelled");
   }
 
   async cancelJob(bull: BullJob, reason: string): Promise<boolean> {
@@ -634,8 +664,8 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       options: SubmitOptions = {}
     ): Promise<JobHandle> => {
       this.assertOpen();
-      if (this.eventsReady) await this.eventsReady;
-      const value = assertJobValue(
+      if (this.events) await this.events;
+      const value = this.check(
         await validateInput(name, definition.schema, input)
       );
       // Ask before adding: on a hit BullMQ returns the *existing* job, so
@@ -669,10 +699,10 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       if (options.ids && options.ids.length !== inputs.length) {
         throw new RangeError("bulk ids must match the number of inputs");
       }
-      if (this.eventsReady) await this.eventsReady;
+      if (this.events) await this.events;
       const values = await Promise.all(
         inputs.map(async (input) =>
-          assertJobValue(await validateInput(name, definition.schema, input))
+          this.check(await validateInput(name, definition.schema, input))
         )
       );
       const created = await this.queue.addBulk(
@@ -701,7 +731,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       options: ScheduleOptions<unknown>
     ): Promise<ScheduleHandle> => {
       this.assertOpen();
-      const value = assertJobValue(
+      const value = this.check(
         await validateInput(name, definition.schema, options.input)
       );
       const id = options.id?.trim() || name;
@@ -870,7 +900,6 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
         event: Event,
         listener: (payload: QueueEventMap[Event]) => void
       ) => {
-        const events = this.queueEvents();
         const bullEvent = {
           added: "added",
           started: "active",
@@ -888,8 +917,19 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
             if (snapshot) listener(snapshot as never);
           });
         };
-        events.on(bullEvent as never, handler as never);
-        return () => events.off(bullEvent as never, handler as never);
+        // Attaching has to wait for the stream to open, so unsubscribing
+        // before that has to be remembered rather than applied.
+        let detach: (() => void) | undefined;
+        let unsubscribed = false;
+        void this.queueEvents().then((events) => {
+          if (unsubscribed) return;
+          events.on(bullEvent as never, handler as never);
+          detach = () => events.off(bullEvent as never, handler as never);
+        });
+        return () => {
+          unsubscribed = true;
+          detach?.();
+        };
       },
     } satisfies QueueApi<Definitions>);
   }
@@ -947,7 +987,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
         facade.closed = true;
         facade.workerRunning = false;
         await facade.worker?.close();
-        await facade.events?.close();
+        await (await facade.events)?.close();
         await facade.queue.close();
       },
     } satisfies WorkerApi);

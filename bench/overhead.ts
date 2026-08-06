@@ -96,8 +96,11 @@ async function rawBullmq(): Promise<number> {
   return ms;
 }
 
-async function viaEnqiu(validated: boolean): Promise<number> {
-  const prefix = `bench-enqiu-${validated ? "zod" : "bare"}`;
+async function viaEnqiu(
+  validated: boolean,
+  validatePayloads = true
+): Promise<number> {
+  const prefix = `bench-enqiu-${validated ? "zod" : "bare"}-${validatePayloads}`;
   await flush(`${prefix}:`);
 
   let done = 0;
@@ -121,6 +124,7 @@ async function viaEnqiu(validated: boolean): Promise<number> {
       connection,
       prefix,
       worker: { concurrency: CONCURRENCY, autoStart: false },
+      validatePayloads,
     }
   );
 
@@ -156,6 +160,9 @@ console.log(
 const raw = await measure("raw BullMQ", rawBullmq);
 const bare = await measure("Enqiu (bare handler)", () => viaEnqiu(false));
 const zod = await measure("Enqiu (Zod-validated)", () => viaEnqiu(true));
+const lean = await measure("Enqiu (no payload check)", () =>
+  viaEnqiu(false, false)
+);
 
 const overhead = (ms: number): string => {
   const pct = ((ms - raw) / raw) * 100;
@@ -163,6 +170,7 @@ const overhead = (ms: number): string => {
 };
 console.log("\nOverhead vs raw BullMQ:");
 console.log(`  Enqiu (bare handler)     ${overhead(bare)}`);
-console.log(`  Enqiu (Zod-validated)    ${overhead(zod)}\n`);
+console.log(`  Enqiu (Zod-validated)    ${overhead(zod)}`);
+console.log(`  Enqiu (no payload check) ${overhead(lean)}\n`);
 
 process.exit(0);
