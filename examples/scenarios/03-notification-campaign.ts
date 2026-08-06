@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { job } from "../../src/index.js";
-import { expect, heading, makeJobs, note, step, summary } from "./_harness.js";
+import { expect, finish, heading, makeJobs, note, step } from "./_harness.js";
 
 heading(
   "3. Notification campaign",
@@ -77,6 +77,4 @@ expect(snapshot.nextRunAt > Date.now(), "and knows its next occurrence");
 note(`next run: ${new Date(snapshot.nextRunAt).toISOString()}`);
 await digest.remove();
 
-await jobs.worker.close({ drain: false });
-summary("Scenario 3");
-process.exit(0);
+await finish("Scenario 3", jobs, { drain: false });

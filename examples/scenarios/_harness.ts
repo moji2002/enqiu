@@ -14,6 +14,7 @@ import type {
   EnqiuOptions,
   JobDefinitions,
   JobsApi,
+  WorkerApi,
 } from "../../src/index.js";
 
 const GREY = "[90m";
@@ -48,15 +49,33 @@ export function expect(condition: boolean, description: string): void {
   throw new Error(`Scenario check failed: ${description}`);
 }
 
-export function summary(name: string): void {
+/** Counted like any other check, so a scenario's total stays honest. */
+export async function expectRejects(
+  promise: Promise<unknown>,
+  description: string
+): Promise<void> {
+  let rejected = false;
+  await promise.catch(() => {
+    rejected = true;
+  });
+  expect(rejected, description);
+}
+
+/** Every scenario ends the same way: shut down, report, exit clean. */
+export async function finish(
+  name: string,
+  jobs: { worker: WorkerApi },
+  options?: { drain?: boolean }
+): Promise<never> {
+  await jobs.worker.close(options);
   process.stdout.write(`\n${GREEN}${name}: ${checks} checks passed${OFF}\n`);
-  checks = 0;
+  process.exit(0);
 }
 
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-export function requireRedis(): { host: string; port: number } {
+export function requireRedis(): EnqiuOptions["connection"] {
   const url = process.env.ENQIU_TEST_REDIS_URL;
   if (!url) {
     process.stdout.write(
@@ -64,8 +83,8 @@ export function requireRedis(): { host: string; port: number } {
     );
     process.exit(0);
   }
-  const parsed = new URL(url);
-  return { host: parsed.hostname, port: Number(parsed.port || 6379) };
+  // BullMQ takes the URL as-is, password, database and TLS included.
+  return { url };
 }
 
 /** A queue in its own namespace, so scenarios never see each other's jobs. */

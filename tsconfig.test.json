@@ -10,6 +10,7 @@
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
+    "bench/**/*.ts",
     "examples/scenarios/**/*.ts"
   ]
 }

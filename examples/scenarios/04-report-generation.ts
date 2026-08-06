@@ -10,7 +10,15 @@
 
 import { z } from "zod";
 import { job } from "../../src/index.js";
-import { expect, heading, makeJobs, note, step, summary } from "./_harness.js";
+import {
+  expect,
+  expectRejects,
+  finish,
+  heading,
+  makeJobs,
+  note,
+  step,
+} from "./_harness.js";
 
 heading(
   "4. Report generation",
@@ -65,19 +73,8 @@ note(`progress: ${JSON.stringify(snapshot.progress)}`);
 
 step("submitting a report that hangs …");
 const stuck = await jobs.hangingReport({});
-await expect_rejects(stuck.result);
+await expectRejects(stuck.result, "a hung report rejects rather than hanging on");
 expect(abortObserved === true, "the timeout aborted the handler's signal");
 expect((await stuck.refresh()).status === "failed", "and the job settled as failed");
 
-async function expect_rejects(promise: Promise<unknown>): Promise<void> {
-  await promise.then(
-    () => {
-      throw new Error("expected a rejection");
-    },
-    () => undefined
-  );
-}
-
-await jobs.worker.close({ drain: false });
-summary("Scenario 4");
-process.exit(0);
+await finish("Scenario 4", jobs, { drain: false });

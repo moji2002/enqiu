@@ -5,6 +5,55 @@ All notable changes to this project are documented here. The project follows
 
 ## Unreleased
 
+### Breaking
+
+- **Dead public surface removed.** `encodeJobValue`, `decodeJobValue`,
+  `cloneJobValue` and `serializeError` were left over from the deleted drivers
+  and had no caller; `src/codec.ts` is now `src/serialize.ts`, holding only the
+  JSON-safety check it actually performs.
+- **Options that did nothing are gone.** `SubmitOptions.timeout` and
+  `SubmitOptions.expiresIn` were accepted and ignored — Enqiu enforces both
+  worker-side and BullMQ's job options have no field to carry a per-submission
+  value across the queue, so they belong on the definition. `BulkOptions` no
+  longer inherits `idempotencyKey`, which applied one key to a whole batch and
+  collapsed it into a single job.
+- **Types that nothing produced are gone**: the `"expired"` job status (expiry
+  settles as `failed`), `JobSnapshot.logs` (read them with
+  `jobs.bull.queue.getJobLogs`), `TelemetryEvent.job`, `SerializedError.stack`
+  and `ScheduleHandle.nextRunAt` (`refresh()` returns it, freshly).
+
+### Fixed
+
+- **`EnqiuOptions.retry` had no effect.** The queue-wide default was declared
+  next to `timeout`, which worked, but never read.
+- **`cleanup({ status })` cleaned the wrong jobs.** Anything other than
+  `"failed"` cleaned completed jobs, so `{ status: "running" }` deleted
+  successes. Listing and cleaning by status now come from the same table as
+  `stats()`, which also means `list({ status: "queued" })` includes prioritized
+  jobs — it previously counted them in `stats()` but not in `list()` — and
+  `list({ status: "cancelled" })` returns nothing rather than waiting jobs.
+- **Cancellation markers used ioredis' positional `HSET`.** BullMQ 6 abstracts
+  over node-redis and Bun, where `hset` takes a field map; markers are now
+  written through BullMQ's own client interface.
+- **`worker.running` and the closed check were mirrored state.** Pausing or
+  closing through `jobs.bull` left them claiming otherwise; both now read from
+  BullMQ.
+
+### Changed
+
+- `queue.on()` no longer asks Redis for a state its own event already carried,
+  removing a round trip per event per listener.
+- `cleanup()` deletes stale markers in batches rather than one `HDEL` naming
+  every field.
+- `worker.onIdle()` backs its poll off from 20ms to 250ms instead of holding 50
+  polls a second for the length of a drain.
+- `close()` shuts the queue, worker and event stream down concurrently.
+- The overhead benchmark now interleaves its contestants and gives raw BullMQ
+  the same connection handling as Enqiu. Sharing one ioredis between Queue and
+  Worker had made the floor read slower than the wrapper built on it, which
+  inflated every previously published figure: the real cost is about 5%, or 7%
+  with Zod validation.
+
 ## [0.3.0-alpha.0] - 2026-08-06
 
 Enqiu is now a typed layer over [BullMQ](https://bullmq.io) rather than a queue

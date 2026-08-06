@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import { job } from "../../src/index.js";
-import { expect, heading, makeJobs, note, sleep, step, summary } from "./_harness.js";
+import { expect, finish, heading, makeJobs, note, sleep, step } from "./_harness.js";
 
 heading(
   "10. Failure triage and shutdown",
@@ -49,9 +49,7 @@ note(`failure recorded: ${failed.jobs[0]?.error?.message ?? "unknown"}`);
 
 step("the partner comes back; an operator replays the batch …");
 dependencyUp = true;
-for (const snapshot of failed.jobs) {
-  await jobs.queue.redrive(snapshot.id);
-}
+await Promise.all(failed.jobs.map((snapshot) => jobs.queue.redrive(snapshot.id)));
 await jobs.worker.onIdle();
 expect(delivered.length === 4, "all 4 payouts delivered on replay");
 expect((await jobs.queue.stats()).failed === 0, "nothing is left in `failed`");
@@ -76,6 +74,4 @@ await slow.worker.close();
 expect(done.length === 4, "a draining close() let every queued job finish");
 note("drain for deploys; drain:false only when you are discarding the work.");
 
-await jobs.worker.close({ drain: false });
-summary("Scenario 10");
-process.exit(0);
+await finish("Scenario 10", jobs, { drain: false });

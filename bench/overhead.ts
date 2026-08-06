@@ -31,15 +31,27 @@ const CONCURRENCY = Number(process.env.BENCH_CONCURRENCY ?? 32);
 const RUNS = Number(process.env.BENCH_RUNS ?? 5);
 const WORK_MS = Number(process.env.BENCH_WORK_MS ?? 0);
 
-const parsed = new globalThis.URL(URL);
-const connection = {
-  host: parsed.hostname,
-  port: Number(parsed.port || 6379),
-};
+const connection = { url: URL };
 
 const work = async (): Promise<void> => {
   if (WORK_MS > 0) await new Promise((r) => setTimeout(r, WORK_MS));
 };
+
+/** Both contestants finish the same way: count to JOBS, then resolve. */
+function latch(): { tick: () => void; allDone: Promise<void> } {
+  let done = 0;
+  let finished!: () => void;
+  const allDone = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
+  return {
+    tick: () => {
+      done += 1;
+      if (done === JOBS) finished();
+    },
+    allDone,
+  };
+}
 
 const median = (values: number[]): number =>
   [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] as number;
@@ -54,27 +66,29 @@ async function flush(prefix: string): Promise<void> {
   await client.quit();
 }
 
-/** The floor: BullMQ with no wrapper at all. */
+/**
+ * The floor: BullMQ with no wrapper at all.
+ *
+ * Both contestants hand BullMQ the same connection *options* rather than a
+ * shared client. Passing one ioredis instance to both Queue and Worker made
+ * the floor look slower than the thing built on top of it — the worker's
+ * blocking reads contend with the producer on that single socket, which is a
+ * property of how it was wired up, not of the wrapper.
+ */
 async function rawBullmq(): Promise<number> {
   const prefix = "bench-raw";
   await flush(`${prefix}:`);
-  const conn = new IORedis(URL as string, { maxRetriesPerRequest: null });
-  const queue = new Queue("bench", { connection: conn, prefix });
+  const queue = new Queue("bench", { connection, prefix });
 
-  let done = 0;
-  let finished!: () => void;
-  const allDone = new Promise<void>((resolve) => {
-    finished = resolve;
-  });
+  const { tick, allDone } = latch();
   const worker = new Worker(
     "bench",
     async (bull) => {
       await work();
-      done += 1;
-      if (done === JOBS) finished();
+      tick();
       return bull.data;
     },
-    { connection: conn, prefix, concurrency: CONCURRENCY, autorun: false }
+    { connection, prefix, concurrency: CONCURRENCY, autorun: false }
   );
   await worker.waitUntilReady();
 
@@ -90,9 +104,7 @@ async function rawBullmq(): Promise<number> {
   await allDone;
   const ms = Number(process.hrtime.bigint() - started) / 1e6;
 
-  await worker.close();
-  await queue.close();
-  await conn.quit();
+  await Promise.all([worker.close(), queue.close()]);
   return ms;
 }
 
@@ -103,22 +115,17 @@ async function viaEnqiu(
   const prefix = `bench-enqiu-${validated ? "zod" : "bare"}-${validatePayloads}`;
   await flush(`${prefix}:`);
 
-  let done = 0;
-  let finished!: () => void;
-  const allDone = new Promise<void>((resolve) => {
-    finished = resolve;
-  });
-  const tick = async (value: { i: number }) => {
+  const { tick, allDone } = latch();
+  const run = async (value: { i: number }) => {
     await work();
-    done += 1;
-    if (done === JOBS) finished();
+    tick();
     return value;
   };
 
   const jobs = enqiu(
     validated
-      ? { work: job({ input: z.object({ i: z.number() }), run: tick }) }
-      : { work: tick },
+      ? { work: job({ input: z.object({ i: z.number() }), run }) }
+      : { work: run },
     {
       name: "bench",
       connection,
@@ -138,39 +145,45 @@ async function viaEnqiu(
   return ms;
 }
 
-async function measure(
-  label: string,
-  run: () => Promise<number>
-): Promise<number> {
-  await run(); // warmup, discarded
-  const samples: number[] = [];
-  for (let i = 0; i < RUNS; i += 1) samples.push(await run());
-  const m = median(samples);
-  console.log(
-    `  ${label.padEnd(26)} ${String(Math.round(m)).padStart(6)}ms   ` +
-      `${rate(m).padStart(18)}   [${samples.map((s) => Math.round(s)).join(", ")}]`
-  );
-  return m;
-}
+const contestants = [
+  { label: "raw BullMQ", run: rawBullmq },
+  { label: "Enqiu (bare handler)", run: () => viaEnqiu(false) },
+  { label: "Enqiu (Zod-validated)", run: () => viaEnqiu(true) },
+  { label: "Enqiu (no payload check)", run: () => viaEnqiu(false, false) },
+];
 
 console.log(
   `\nWrapper overhead: ${JOBS} jobs, concurrency ${CONCURRENCY}, ` +
-    `${WORK_MS}ms work/job, median of ${RUNS}\n`
-);
-const raw = await measure("raw BullMQ", rawBullmq);
-const bare = await measure("Enqiu (bare handler)", () => viaEnqiu(false));
-const zod = await measure("Enqiu (Zod-validated)", () => viaEnqiu(true));
-const lean = await measure("Enqiu (no payload check)", () =>
-  viaEnqiu(false, false)
+    `${WORK_MS}ms work/job, median of ${RUNS}, interleaved\n`
 );
 
-const overhead = (ms: number): string => {
-  const pct = ((ms - raw) / raw) * 100;
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
-};
+// Warm every contestant, then interleave the measured runs. Measuring one to
+// completion before starting the next let whoever went first absorb the JIT
+// and connection warmup and read slower for it — by enough to make the wrapper
+// look faster than the thing it wraps, which it cannot be.
+const results = contestants.map((c) => ({ label: c.label, samples: [] as number[] }));
+for (const contestant of contestants) await contestant.run();
+for (let round = 0; round < RUNS; round += 1) {
+  for (const [index, contestant] of contestants.entries()) {
+    results[index]?.samples.push(await contestant.run());
+  }
+}
+
+const medians = results.map((r) => ({ label: r.label, ms: median(r.samples) }));
+for (const [index, { label, ms }] of medians.entries()) {
+  const samples = results[index]?.samples ?? [];
+  console.log(
+    `  ${label.padEnd(26)} ${String(Math.round(ms)).padStart(6)}ms   ` +
+      `${rate(ms).padStart(18)}   [${samples.map((s) => Math.round(s)).join(", ")}]`
+  );
+}
+
+const raw = medians[0]?.ms ?? 0;
 console.log("\nOverhead vs raw BullMQ:");
-console.log(`  Enqiu (bare handler)     ${overhead(bare)}`);
-console.log(`  Enqiu (Zod-validated)    ${overhead(zod)}`);
-console.log(`  Enqiu (no payload check) ${overhead(lean)}\n`);
+for (const { label, ms } of medians.slice(1)) {
+  const pct = ((ms - raw) / raw) * 100;
+  console.log(`  ${label.padEnd(26)} ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`);
+}
+console.log();
 
 process.exit(0);

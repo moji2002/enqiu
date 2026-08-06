@@ -7,11 +7,10 @@ export {
   JobTimeoutError,
   JobValidationError,
   QueueClosedError,
-  serializeError,
   toError,
 } from "./errors.js";
 
-export { JobSerializationError } from "./codec.js";
+export { JobSerializationError } from "./serialize.js";
 
 export type {
   AnyJobSnapshot,

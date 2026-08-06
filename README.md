@@ -26,7 +26,7 @@ experience.
 > exact version: it is published under the `beta` dist-tag, so a plain
 > `npm install enqiu` will not install it.
 >
-> The layer in between is new. It is covered at 97% of statements and 83% of
+> The layer in between is new. It is covered at 98% of statements and 87% of
 > branches, and every path is exercised against a real Redis.
 
 ```bash
@@ -103,17 +103,22 @@ jobs.bull.queue    // the real BullMQ Queue
 jobs.bull.worker   // the real BullMQ Worker, or undefined for a producer
 ```
 
-Measured against raw BullMQ on the same Redis, the typed path costs a few
-percent; calls through `jobs.bull` cost nothing, because nothing is in the way.
-Most of that few percent is the serialization check, which you can turn off
-once you trust your payloads:
+Measured against raw BullMQ on the same Redis — 10,000 jobs, concurrency 32,
+contestants interleaved, median of 7 — the typed path costs about 5%, and Zod
+validation about 7%. Calls through `jobs.bull` cost nothing, because nothing is
+in the way.
+
+Roughly a point of that is the serialization check, which you can turn off once
+you trust your payloads:
 
 ```ts
 enqiu(definitions, { connection, validatePayloads: false });
 ```
 
-That takes the overhead to roughly 1%, and gives up the error that names the
-exact path of an unserialisable value.
+That gives up the error naming the exact path of an unserialisable value; the
+serializer still rejects it, later and less precisely.
+
+Reproduce with `pnpm tsx bench/overhead.ts`.
 
 ## What BullMQ provides
 

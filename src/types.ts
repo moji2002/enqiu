@@ -22,8 +22,7 @@ export type JobStatus =
   | "running"
   | "succeeded"
   | "failed"
-  | "cancelled"
-  | "expired";
+  | "cancelled";
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
@@ -159,6 +158,13 @@ type DefinitionSchema<Definition> =
   Definition extends SchemaJobDefinition<infer Schema, any> ? Schema : undefined;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/**
+ * Per-submission options.
+ *
+ * `timeout` and `expiresIn` are absent here on purpose. They live on the job
+ * definition because Enqiu enforces them worker-side, and BullMQ's job options
+ * have no free field to carry a per-submission value across the queue.
+ */
 export interface SubmitOptions {
   id?: string;
   /** Reuses an existing job with the same key instead of creating a new one. */
@@ -167,11 +173,11 @@ export interface SubmitOptions {
   delay?: number | Date;
   priority?: number | "low" | "normal" | "high";
   retry?: number | RetryPolicy;
-  timeout?: number;
-  expiresIn?: number;
 }
 
-export interface BulkOptions extends Omit<SubmitOptions, "id"> {
+/** One key across a batch would collapse it into a single job, so it is out. */
+export interface BulkOptions
+  extends Omit<SubmitOptions, "id" | "idempotencyKey" | "idempotencyTtl"> {
   ids?: readonly string[];
 }
 
@@ -193,7 +199,6 @@ export interface ScheduleSnapshot {
 
 export interface ScheduleHandle {
   readonly id: string;
-  readonly nextRunAt: number;
   remove(): Promise<void>;
   refresh(): Promise<ScheduleSnapshot>;
 }
@@ -214,7 +219,6 @@ export interface JobSnapshot<
   progress?: unknown;
   output?: Output | undefined;
   error?: SerializedError | undefined;
-  logs?: readonly string[] | undefined;
 }
 
 export interface JobHandle<
@@ -331,7 +335,6 @@ export interface TelemetryEvent {
   readonly type: string;
   readonly queue: string;
   readonly timestamp: number;
-  readonly job?: JobSnapshot;
   readonly fields?: Readonly<Record<string, unknown>>;
 }
 
@@ -348,17 +351,22 @@ export interface EnqiuOptions {
   prefix?: string;
   /** Run handlers in this process. `false` makes it producer-only. */
   worker?: false | WorkerOptions;
+  /** Queue-wide defaults, overridden per job and (for `retry`) per submission. */
   retry?: number | RetryPolicy;
   timeout?: number;
-  /** Structured log lines retained per job. @default 100 */
+  /**
+   * Structured log lines retained per job. Read them back with
+   * `jobs.bull.queue.getJobLogs(id)` — an extra round trip Enqiu does not
+   * make on your behalf. @default 100
+   */
   logLimit?: number;
   /**
    * Check that job inputs and results are storable before handing them over.
    *
-   * Costs about 1.4us per job — roughly two thirds of this layer's total
-   * overhead — and buys an error naming the exact path, rather than whatever
-   * the serialiser says once the value is already on its way to Redis. Turn it
-   * off if you have measured that it matters and trust your payloads.
+   * Worth about one point of the layer's ~5% overhead, and buys an error
+   * naming the exact path rather than whatever the serialiser says once the
+   * value is already on its way to Redis. Turn it off if you have measured
+   * that it matters and trust your payloads.
    *
    * @default true
    */

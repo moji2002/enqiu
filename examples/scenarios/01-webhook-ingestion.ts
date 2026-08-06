@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { job } from "../../src/index.js";
-import { expect, heading, makeJobs, step, summary } from "./_harness.js";
+import { expect, finish, heading, makeJobs, step } from "./_harness.js";
 
 heading(
   "1. Webhook ingestion",
@@ -55,6 +55,4 @@ await flaky.result;
 expect(flakyAttempts === 3, "retried with backoff until it succeeded");
 expect((await flaky.refresh()).status === "succeeded", "and settled as succeeded");
 
-await jobs.worker.close();
-summary("Scenario 1");
-process.exit(0);
+await finish("Scenario 1", jobs);

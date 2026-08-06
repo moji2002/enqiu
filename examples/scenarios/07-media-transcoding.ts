@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { job } from "../../src/index.js";
-import { expect, heading, makeJobs, note, step, summary } from "./_harness.js";
+import { expect, finish, heading, makeJobs, note, step } from "./_harness.js";
 
 heading(
   "7. Media transcoding pool",
@@ -47,8 +47,10 @@ await jobs.transcode.bulk(
 );
 
 step("then two paid uploads arrive behind it …");
-await jobs.transcode({ asset: "paid-0", tier: "paid" }, { priority: "high" });
-await jobs.transcode({ asset: "paid-1", tier: "paid" }, { priority: "high" });
+await Promise.all([
+  jobs.transcode({ asset: "paid-0", tier: "paid" }, { priority: "high" }),
+  jobs.transcode({ asset: "paid-1", tier: "paid" }, { priority: "high" }),
+]);
 
 expect((await jobs.queue.stats()).queued === 8, "8 uploads wait on a pool of 2");
 
@@ -62,6 +64,4 @@ expect(
 );
 note("pool size is a resource decision — size it to cores, not to demand.");
 
-await jobs.worker.close({ drain: false });
-summary("Scenario 7");
-process.exit(0);
+await finish("Scenario 7", jobs, { drain: false });

@@ -10,8 +10,10 @@ import {
 import { z } from "zod";
 import {
   JobValidationError,
+  QueueClosedError,
   enqiu,
   job,
+  type EnqiuOptions,
   type JobContext,
   type JobsApi,
   type JobDefinitions,
@@ -19,6 +21,9 @@ import {
 
 const redisUrl = process.env.ENQIU_TEST_REDIS_URL;
 const describeRedis = redisUrl ? describe : describe.skip;
+
+// BullMQ takes the URL as-is, so nothing here has to parse out host and port.
+const connection: EnqiuOptions["connection"] = { url: redisUrl ?? "" };
 
 async function waitFor(
   predicate: () => boolean | Promise<boolean>,
@@ -31,25 +36,20 @@ async function waitFor(
   }
 }
 
-function connectionFrom(url: string): { host: string; port: number } {
-  const parsed = new URL(url);
-  return { host: parsed.hostname, port: Number(parsed.port || 6379) };
-}
-
 describeRedis("enqiu over BullMQ", () => {
   let prefix: string;
   let open: Array<JobsApi<JobDefinitions>>;
 
   const make = <Definitions extends JobDefinitions>(
     definitions: Definitions,
-    options: Partial<Parameters<typeof enqiu>[1]> = {}
+    options: Partial<Omit<EnqiuOptions, "connection">> = {}
   ) => {
     const jobs = enqiu(definitions, {
       name: `t-${randomUUID()}`,
-      connection: connectionFrom(redisUrl as string),
+      connection,
       prefix,
       ...options,
-    } as Parameters<typeof enqiu>[1]);
+    });
     open.push(jobs as unknown as JobsApi<JobDefinitions>);
     return jobs;
   };
@@ -154,12 +154,10 @@ describeRedis("enqiu over BullMQ", () => {
 
     it("refuses names that collide with the api surface", () => {
       expect(() =>
-        enqiu({ queue: async () => 1 }, {
-          connection: connectionFrom(redisUrl as string),
-        })
+        enqiu({ queue: async () => 1 }, { connection })
       ).toThrow('"queue" is reserved by enqiu');
       expect(() =>
-        enqiu({}, { connection: connectionFrom(redisUrl as string) })
+        enqiu({}, { connection })
       ).toThrow("At least one job definition is required");
     });
   });
@@ -223,6 +221,25 @@ describeRedis("enqiu over BullMQ", () => {
       });
       await expect((await jobs.flaky({})).result).resolves.toBe("ok");
       expect(attempts).toEqual([1, 2, 3]);
+    });
+
+    it("falls back to the queue-wide retry default", async () => {
+      const attempts: number[] = [];
+      const jobs = make(
+        {
+          flaky: job({
+            input: z.object({}),
+            run: async (_input, context) => {
+              attempts.push(context.attempt);
+              if (attempts.length < 2) throw new Error("try again");
+              return "ok";
+            },
+          }),
+        },
+        { retry: { attempts: 2, backoff: 5 } }
+      );
+      await expect((await jobs.flaky({})).result).resolves.toBe("ok");
+      expect(attempts).toEqual([1, 2]);
     });
 
     it("fails terminally once attempts are exhausted", async () => {
@@ -566,10 +583,23 @@ describeRedis("enqiu over BullMQ", () => {
 
     it("reserves `bull` as a job name", () => {
       expect(() =>
-        enqiu({ bull: async () => 1 }, {
-          connection: connectionFrom(redisUrl as string),
-        })
+        enqiu({ bull: async () => 1 }, { connection })
       ).toThrow('"bull" is reserved by enqiu');
+    });
+
+    it("reports itself closed when the BullMQ queue is closed underneath", async () => {
+      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      await jobs.bull.queue.close();
+      // The facade reads BullMQ rather than a flag it maintains, so the two
+      // cannot drift apart.
+      await expect(jobs.work(1)).rejects.toBeInstanceOf(QueueClosedError);
+    });
+
+    it("stops reporting a worker as running once BullMQ pauses it", async () => {
+      const jobs = make({ work: async (n: number) => n });
+      expect(jobs.worker.running).toBe(true);
+      await jobs.bull.worker?.pause();
+      expect(jobs.worker.running).toBe(false);
     });
 
     it("skips the payload check when asked", async () => {
@@ -598,9 +628,7 @@ describeRedis("enqiu over BullMQ", () => {
         job({ input: z.object({}), run: "nope" as never })
       ).toThrow("job.run must be a function");
       expect(() =>
-        enqiu({ work: { bad: true } as never }, {
-          connection: connectionFrom(redisUrl as string),
-        })
+        enqiu({ work: { bad: true } as never }, { connection })
       ).toThrow("handler or a definition created with job()");
     });
 
@@ -655,6 +683,9 @@ describeRedis("enqiu over BullMQ", () => {
         const page = await jobs.queue.list({ status, limit: 10 });
         expect(Array.isArray(page.jobs)).toBe(true);
       }
+      // No BullMQ state backs "cancelled", so it lists nothing rather than
+      // quietly listing whatever "waiting" happens to hold.
+      expect((await jobs.queue.list({ status: "cancelled" })).jobs).toEqual([]);
 
       // olderThan 0 makes every marker stale, so the hash is emptied.
       await jobs.queue.cleanup({ olderThan: 0 });

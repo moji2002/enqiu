@@ -49,7 +49,8 @@ npm install enqiu@beta bullmq ioredis
 ## Escaping the layer
 
 - `jobs.bull.queue` and `jobs.bull.worker` expose the underlying BullMQ objects. Use them for anything Enqiu does not model — flows, Pro groups, metrics, raw options. Calls through them have no wrapper overhead.
-- `validatePayloads: false` in the options skips Enqiu's JSON-safety check, taking the layer's overhead to roughly 1% at the cost of the precise error path.
+- The layer costs about 5% against raw BullMQ on the same Redis, and about 7% with Zod validation.
+- `validatePayloads: false` in the options skips Enqiu's JSON-safety check, worth about a point of that, at the cost of the precise error path.
 
 ## Not available
 

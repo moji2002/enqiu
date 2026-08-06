@@ -166,7 +166,7 @@ function Landing() {
           <p className="note">
             <code>bullmq</code> and <code>ioredis</code> are peer dependencies: Enqiu does not pick
             versions or open connections for you. Measured against raw BullMQ on the same Redis,
-            the layer costs about 3% for a bare handler and 6% with Zod validation.
+            the layer costs about 5% for a bare handler and 7% with Zod validation.
           </p>
           <p className="note">
             Gaps in BullMQ&rsquo;s open-source tier are left as gaps rather than faked. Per-key

@@ -1,8 +1,8 @@
 /**
  * Runs every scenario in order and fails the process if any check fails.
  *
- * Set ENQIU_TEST_REDIS_URL to also run the driver-parity scenarios (1 and 2)
- * against Redis with the identical job code.
+ * All of them need ENQIU_TEST_REDIS_URL — Enqiu runs on BullMQ, so there is no
+ * driverless path left to demonstrate.
  */
 
 import { readdirSync } from "node:fs";

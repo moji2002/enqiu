@@ -3,7 +3,6 @@
 export interface SerializedError {
   name: string;
   message: string;
-  stack?: string | undefined;
 }
 
 export class JobFailedError extends Error {
@@ -74,10 +73,6 @@ export interface StandardSchemaIssue {
   readonly path?:
     | ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>
     | undefined;
-}
-
-export function serializeError(error: Error): SerializedError {
-  return { name: error.name, message: error.message, stack: error.stack };
 }
 
 export function toError(value: unknown): Error {
