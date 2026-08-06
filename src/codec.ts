@@ -29,6 +29,19 @@ export function cloneJobValue<T>(value: T): T {
   return decodeJobValue(encodeJobValue(value)) as T;
 }
 
+/**
+ * Checks a value is storable and returns it unchanged.
+ *
+ * The queue serialises on submit, so copying first is redundant: nothing the
+ * caller does afterwards can reach the stored job. This keeps the precise
+ * error path that makes an unserialisable value easy to find, without paying
+ * for a JSON round trip per job.
+ */
+export function assertJobValue<T>(value: T): T {
+  assertJsonSafe(value, "$", new Set());
+  return value;
+}
+
 function assertJsonSafe(
   value: unknown,
   path: string,

@@ -17,7 +17,7 @@ import {
   type Job as BullJob,
   type JobsOptions,
 } from "bullmq";
-import { cloneJobValue } from "./codec.js";
+import { assertJobValue } from "./codec.js";
 import {
   JobCancelledError,
   JobExpiredError,
@@ -273,7 +273,7 @@ function createContext(
     log,
     reportProgress: async (progress: Progress) => {
       validateProgress(progress);
-      await bull.updateProgress(cloneJobValue(progress) as never);
+      await bull.updateProgress(assertJobValue(progress) as never);
       telemetry?.emit({
         type: "job.progress",
         queue,
@@ -438,12 +438,12 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     const execution = Promise.resolve(definition.run(bull.data, context));
 
     if (timeout === undefined) {
-      return cloneJobValue(await execution);
+      return assertJobValue(await execution);
     }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return cloneJobValue(
+      return assertJobValue(
         await Promise.race([
           execution,
           new Promise<never>((_, reject) => {
@@ -535,7 +535,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       options: SubmitOptions = {}
     ): Promise<JobHandle> => {
       this.assertOpen();
-      const value = cloneJobValue(
+      const value = assertJobValue(
         await validateInput(name, definition.schema, input)
       );
       // Ask before adding: on a hit BullMQ returns the *existing* job, so
@@ -571,7 +571,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       }
       const values = await Promise.all(
         inputs.map(async (input) =>
-          cloneJobValue(await validateInput(name, definition.schema, input))
+          assertJobValue(await validateInput(name, definition.schema, input))
         )
       );
       const created = await this.queue.addBulk(
@@ -600,7 +600,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       options: ScheduleOptions<unknown>
     ): Promise<ScheduleHandle> => {
       this.assertOpen();
-      const value = cloneJobValue(
+      const value = assertJobValue(
         await validateInput(name, definition.schema, options.input)
       );
       const id = options.id?.trim() || name;
