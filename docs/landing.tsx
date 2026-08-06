@@ -107,10 +107,10 @@ function Landing() {
 
       <main>
         <div className="masthead">
-          <p className="alpha" role="note">
-            <strong>Alpha.</strong> Not for production — the API still breaks between releases
-            without a deprecation period. Published under the <code>alpha</code> tag, so install
-            it as <code>enqiu@alpha</code>.
+          <p className="status" role="note">
+            <strong>Beta.</strong> The API shape is settled and the hard parts are BullMQ&rsquo;s.
+            The layer in between is new, so pin an exact version. Published under the{" "}
+            <code>beta</code> tag: install it as <code>enqiu@beta</code>.
           </p>
           <h1>A job queue you call like a function.</h1>
           <p className="lede">

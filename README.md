@@ -1,7 +1,7 @@
 # Enqiu
 
-[![npm](https://img.shields.io/npm/v/enqiu/alpha?style=flat-square&label=alpha)](https://www.npmjs.com/package/enqiu)
-[![status](https://img.shields.io/badge/status-alpha-d97706?style=flat-square)](#status-alpha)
+[![npm](https://img.shields.io/npm/v/enqiu/beta?style=flat-square&label=beta)](https://www.npmjs.com/package/enqiu)
+[![status](https://img.shields.io/badge/status-beta-2563eb?style=flat-square)](#status-beta)
 [![built on](https://img.shields.io/badge/built_on-BullMQ-b91c1c?style=flat-square)](https://bullmq.io)
 [![license](https://img.shields.io/npm/l/enqiu?style=flat-square)](LICENSE)
 
@@ -15,17 +15,23 @@ experience.
 [npm](https://www.npmjs.com/package/enqiu) ·
 [Issues](https://github.com/moji2002/enqiu/issues)
 
-## Status: alpha
+## Status: beta
 
-> [!WARNING]
-> **Enqiu is alpha software. Do not run it in production.**
+> [!NOTE]
+> **Enqiu is beta software.** The shape of the API is settled and the hard
+> parts — storage, retries, scheduling and crash recovery — are BullMQ's,
+> which is mature and widely deployed.
 >
-> The API is still changing and will break between releases without a
-> deprecation period. It is published under the `alpha` dist-tag, so a plain
+> What is new is the layer in between. Expect edge-case bugs there, and pin an
+> exact version: it is published under the `beta` dist-tag, so a plain
 > `npm install enqiu` will not install it.
+>
+> Known gaps: `queue.on()` is untested, cancelling a *running* job is not
+> supported, and a cancelled job's status is tracked in-process — after a
+> restart it reads as missing rather than cancelled.
 
 ```bash
-npm install enqiu@alpha bullmq ioredis
+npm install enqiu@beta bullmq ioredis
 ```
 
 `bullmq` and `ioredis` are peer dependencies — Enqiu does not pick versions or

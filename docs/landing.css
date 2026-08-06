@@ -48,7 +48,7 @@
 
 /* Sits above the h1 deliberately: the status is the first thing a visitor
    needs, not a footnote under the pitch. */
-.alpha {
+.status {
   margin: 0 0 1.25rem;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--warn-rule);
@@ -60,14 +60,14 @@
   line-height: 1.55;
 }
 
-.alpha strong {
+.status strong {
   font-family: var(--mono);
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.alpha code {
+.status code {
   font-family: var(--mono);
   font-size: 0.9em;
 }

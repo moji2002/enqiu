@@ -1,6 +1,6 @@
 {
   "name": "enqiu",
-  "version": "0.3.0-alpha.0",
+  "version": "0.3.0-beta.0",
   "description": "A type-safe, schema-validated job API on top of BullMQ",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -53,7 +53,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "beta"
   },
   "engines": {
     "node": ">=20"

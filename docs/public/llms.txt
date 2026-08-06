@@ -4,12 +4,12 @@
 
 Enqiu coordinates background jobs. It is not a distributed transaction coordinator, and it does not own your Redis connection.
 
-**Status: alpha.** Not for production. The API breaks between releases without a deprecation period, and it is published under the `alpha` dist-tag.
+**Status: beta.** The API shape is settled; storage, retries and scheduling are BullMQ's. The mapping layer is new, so pin an exact version. Published under the `beta` dist-tag.
 
 ## Install
 
 ```sh
-npm install enqiu@alpha bullmq ioredis
+npm install enqiu@beta bullmq ioredis
 ```
 
 `bullmq` and `ioredis` are peer dependencies — Enqiu does not pick versions or open connections. Node.js 20 or newer, plus Redis. ESM with TypeScript declarations. There is no browser build: BullMQ requires Redis and Node.
