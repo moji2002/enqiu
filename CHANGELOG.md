@@ -73,10 +73,13 @@ real-world load.
 
 ### Internal
 
-- Test count rose from 36 to 134, all of which now run: the Redis suite was
-  verified against Redis 7.4.10 through `node-redis`. Coverage is 96.42% of
-  statements without Redis and 95.02% with it, and `src/redis.ts` rose from
-  81.13% to 93.09%. `src/internal/` is fully covered.
+- Test count rose from 36 to 136, all of which now run: the Redis suite was
+  verified against Redis 7.4.10 through `node-redis`. Coverage is 96.65% of
+  statements without Redis and 95.26% with it. `src/internal/` is fully covered.
+- Added ten runnable, self-asserting usage scenarios under `examples/scenarios/`,
+  chosen from documented workloads rather than intuition. The reasoning and its
+  evidence grades are in `docs/use-case-research.md`. Running them against a
+  live Redis is what surfaced the `onIdle()` defect above.
 - Fixed test isolation in the Redis suite. It called `flushDb()` before every
   test, wiping a database that Vitest's parallel test files were using at the
   same time, which made `examples/testing/jobs.redis.test.ts` fail roughly one
