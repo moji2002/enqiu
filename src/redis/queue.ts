@@ -81,6 +81,10 @@ import {
 
 
 
+/** Upper bound on claims issued in one pass, so a huge concurrency cannot
+ *  fire thousands of simultaneous EVALs at Redis. */
+const MAX_CLAIM_BATCH = 32;
+
 export class RedisQueue<Jobs extends JobMap> {
   readonly name: string;
 
@@ -88,6 +92,7 @@ export class RedisQueue<Jobs extends JobMap> {
   private readonly driver: RedisDriverConfig;
   private readonly workerEnabled: boolean;
   private concurrency: number;
+  private lastScheduleTick = 0;
   private readonly retry: NormalizedRedisRetry;
   private readonly timeout: number | undefined;
   private readonly rateLimit: RateLimitOptions | undefined;
@@ -741,9 +746,27 @@ export class RedisQueue<Jobs extends JobMap> {
       }
 
       try {
-        await this.schedules.tick();
-        const claimed = await this.claim();
-        if (!claimed) {
+        // Scanning for due schedules costs a round trip, and nothing becomes
+        // due faster than the poll interval, so it does not belong on every
+        // claim. Ticking it per iteration halved effective throughput.
+        const now = Date.now();
+        if (now - this.lastScheduleTick >= this.driver.pollInterval) {
+          this.lastScheduleTick = now;
+          await this.schedules.tick();
+        }
+
+        // Claim up to the free capacity in parallel. Each EVAL is atomic on
+        // its own, so this is safe; claiming one at a time capped throughput
+        // at one job per round trip no matter how high concurrency was set.
+        const free = Math.min(
+          this.concurrency - this.running.size,
+          MAX_CLAIM_BATCH
+        );
+        const claimed = (
+          await Promise.all(Array.from({ length: free }, () => this.claim()))
+        ).filter((job): job is ClaimedJob => job !== undefined);
+
+        if (claimed.length === 0) {
           if (this.running.size > 0) {
             await Promise.race([
               ...this.running,
@@ -755,10 +778,12 @@ export class RedisQueue<Jobs extends JobMap> {
           continue;
         }
 
-        const execution = this.execute(claimed).finally(() => {
-          this.running.delete(execution);
-        });
-        this.running.add(execution);
+        for (const job of claimed) {
+          const execution = this.execute(job).finally(() => {
+            this.running.delete(execution);
+          });
+          this.running.add(execution);
+        }
       } catch (cause) {
         this.events.emit("error", toError(cause));
         await sleep(Math.max(1000, this.driver.pollInterval));
