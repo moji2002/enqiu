@@ -757,16 +757,13 @@ export class RedisQueue<Jobs extends JobMap> {
           await this.schedules.tick();
         }
 
-        // Claim up to the free capacity in parallel. Each EVAL is atomic on
-        // its own, so this is safe; claiming one at a time capped throughput
-        // at one job per round trip no matter how high concurrency was set.
+        // One round trip claims the whole free capacity. Issuing a claim per
+        // job pinned throughput to round-trip latency instead of concurrency.
         const free = Math.min(
           this.concurrency - this.running.size,
           MAX_CLAIM_BATCH
         );
-        const claimed = (
-          await Promise.all(Array.from({ length: free }, () => this.claim()))
-        ).filter((job): job is ClaimedJob => job !== undefined);
+        const claimed = await this.claimBatch(free);
 
         if (claimed.length === 0) {
           if (this.running.size > 0) {
@@ -793,8 +790,9 @@ export class RedisQueue<Jobs extends JobMap> {
     }
   }
 
-  private async claim(): Promise<ClaimedJob | undefined> {
-    const token = randomToken();
+  /** Claims up to `wanted` jobs in a single round trip. */
+  private async claimBatch(wanted: number): Promise<ClaimedJob[]> {
+    const baseToken = randomToken();
     const leaseError = serializeError(
       new Error("Worker lease expired before the job completed")
     );
@@ -822,7 +820,7 @@ export class RedisQueue<Jobs extends JobMap> {
       ],
       [
         String(Date.now()),
-        token,
+        baseToken,
         String(this.driver.visibilityTimeout),
         String(this.rateLimit?.limit ?? 0),
         String(this.rateLimit?.interval ?? 0),
@@ -834,29 +832,31 @@ export class RedisQueue<Jobs extends JobMap> {
           name: "JobExpiredError",
           message: "Job expired before it could start",
         }),
+        String(wanted),
       ]
     );
-    if (!Array.isArray(result) || result[0] !== "job") {
-      return undefined;
+    if (!Array.isArray(result)) {
+      return [];
     }
-    return {
-      id: String(result[1]),
-      name: String(result[2]),
-      input: decode(String(result[3])),
-      attempt: Number(result[4]),
-      retry: {
-        retries: Number(result[5]),
-        backoff: decode(String(result[6])) as
-          | number
-          | BackoffOptions
-          | undefined,
-      },
-      timeout:
-        result[7] === "" || result[7] === null
-          ? undefined
-          : Number(result[7]),
-      token,
-    };
+    return result.map((entry) => {
+      const row = entry as unknown[];
+      const timeout = String(row[6] ?? "");
+      return {
+        id: String(row[0]),
+        name: String(row[1]),
+        input: decode(String(row[2])),
+        attempt: Number(row[3]),
+        retry: {
+          retries: Number(row[4]),
+          backoff: decode(String(row[5] ?? "")) as
+            | number
+            | BackoffOptions
+            | undefined,
+        },
+        timeout: timeout === "" ? undefined : Number(timeout),
+        token: String(row[7]),
+      };
+    });
   }
 
   private async execute(claimed: ClaimedJob): Promise<void> {
