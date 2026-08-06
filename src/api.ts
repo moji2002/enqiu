@@ -8,6 +8,7 @@ import {
 import type {
   AddOptions,
   JobContext as HandlerContext,
+  KeyedConcurrencyOptions,
   JobSnapshot,
   JobStatus,
   MaybePromise,
@@ -774,21 +775,7 @@ function toAddOptions(
     typeof options.priority === "string"
       ? { low: -10, normal: 0, high: 10 }[options.priority]
       : options.priority;
-  const concurrency =
-    policy.concurrency === undefined
-      ? undefined
-      : typeof policy.concurrency === "number"
-        ? {
-            limit: policy.concurrency,
-            key: `${name}:*`,
-          }
-        : {
-            limit: policy.concurrency.limit,
-            key: `${name}:${resolvePolicyKey(
-              "concurrency.by",
-              policy.concurrency.by?.(input) ?? "*"
-            )}`,
-          };
+  const concurrency = resolveConcurrency(policy.concurrency, name, input);
   const throttle = policy.throttle
     ? {
         limit: policy.throttle.limit,
@@ -826,6 +813,27 @@ function toAddOptions(
     debounce,
     signal: options.signal,
   });
+}
+
+function resolveConcurrency(
+  policy: JobPolicyOptions<unknown>["concurrency"],
+  name: string,
+  input: unknown
+): KeyedConcurrencyOptions | undefined {
+  if (policy === undefined) {
+    return undefined;
+  }
+  // A bare number limits the job as a whole; `by` splits it per derived key.
+  if (typeof policy === "number") {
+    return { limit: policy, key: `${name}:*` };
+  }
+  return {
+    limit: policy.limit,
+    key: `${name}:${resolvePolicyKey(
+      "concurrency.by",
+      policy.by?.(input) ?? "*"
+    )}`,
+  };
 }
 
 function resolvePolicyKey(name: string, value: string): string {

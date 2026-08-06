@@ -15,7 +15,6 @@ import type {
   JobOutput,
   JobSnapshot,
   JobStatus,
-  MaybePromise,
   QueueEventMap,
   QueueOptions,
   QueueStats,
@@ -1074,7 +1073,7 @@ export class RedisQueue<Jobs extends JobMap> {
         ? Math.max(requestedRunAt, now + options.debounce.wait)
         : requestedRunAt;
     const record: RedisJobRecord = {
-      id: options.id ?? createId(this.name, String(name), now, this.sequence++),
+      id: options.id ?? createId(this.name, String(name), now, this.nextSequence()),
       name: String(name),
       input,
       status: resolvedRunAt > now ? "scheduled" : "queued",
@@ -1239,13 +1238,7 @@ export class RedisQueue<Jobs extends JobMap> {
         "cleanup.limit must be an integer between 0 and 10000"
       );
     }
-    const statuses = new Set(
-      options.status === undefined
-        ? ["succeeded", "failed", "cancelled", "expired"]
-        : Array.isArray(options.status)
-          ? options.status
-          : [options.status]
-    );
+    const statuses = new Set(cleanupStatuses(options.status));
     const threshold = Date.now() - olderThan;
     const removed: string[] = [];
     let cursor: string | undefined;
@@ -1601,6 +1594,12 @@ export class RedisQueue<Jobs extends JobMap> {
       }
       await sleep(this.driver.pollInterval);
     }
+  }
+
+  /** Monotonic suffix that keeps generated job IDs unique within a process. */
+  private nextSequence(): number {
+    this.sequence += 1;
+    return this.sequence;
   }
 
   private handle<
@@ -2537,6 +2536,18 @@ function queueKeys(prefix: string, name: string) {
     scheduleMeta: `${base}:schedule:`,
     schedules: `${base}:schedules`,
   } as const;
+}
+
+/** Cleanup defaults to every terminal status when the caller names none. */
+function cleanupStatuses(
+  status: JobStatus | readonly JobStatus[] | undefined
+): readonly JobStatus[] {
+  if (status === undefined) {
+    return ["succeeded", "failed", "cancelled", "expired"];
+  }
+  // JobStatus is a string union, so typeof narrows where Array.isArray does
+  // not narrow the readonly-array side of the union.
+  return typeof status === "string" ? [status] : status;
 }
 
 function normalizeRetry(

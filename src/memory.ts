@@ -466,7 +466,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     resolve(): void;
   }>();
 
-  private _concurrency: number;
+  private concurrencyLimit: number;
   private runningCount = 0;
   private sequence = 0;
   private started: boolean;
@@ -482,7 +482,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     }
 
     this.name = options.name?.trim() || "default";
-    this._concurrency = options.concurrency ?? Number.POSITIVE_INFINITY;
+    this.concurrencyLimit = options.concurrency ?? Number.POSITIVE_INFINITY;
     this.defaultRetry = normalizeRetry(options.retry);
     this.defaultTimeout = options.timeout;
     this.rateLimit = options.rateLimit;
@@ -491,7 +491,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     this.started = options.autoStart ?? true;
     this.handlers = handlers;
 
-    positiveIntegerOrInfinity("concurrency", this._concurrency);
+    positiveIntegerOrInfinity("concurrency", this.concurrencyLimit);
     if (this.defaultTimeout !== undefined) {
       positiveNumber("timeout", this.defaultTimeout);
     }
@@ -504,12 +504,12 @@ export class MemoryQueue<Jobs extends JobMap> {
   }
 
   get concurrency(): number {
-    return this._concurrency;
+    return this.concurrencyLimit;
   }
 
   set concurrency(value: number) {
     positiveIntegerOrInfinity("concurrency", value);
-    this._concurrency = value;
+    this.concurrencyLimit = value;
     this.requestPump();
   }
 
@@ -538,7 +538,7 @@ export class MemoryQueue<Jobs extends JobMap> {
   get isSaturated(): boolean {
     return (
       this.size > 0 &&
-      (this.runningCount >= this._concurrency || this.isRateLimited)
+      (this.runningCount >= this.concurrencyLimit || this.isRateLimited)
     );
   }
 
@@ -662,7 +662,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       error: undefined,
       errorCause: undefined,
       logs: [],
-      sequence: this.sequence++,
+      sequence: this.nextSequence(),
       controller: undefined,
       completion: deferred<JobSnapshot>(),
       externalSignal: options.signal,
@@ -720,7 +720,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       options.expiresIn === undefined ? undefined : now + options.expiresIn;
     job.concurrency = options.concurrency;
     job.throttle = options.throttle;
-    job.sequence = this.sequence++;
+    job.sequence = this.nextSequence();
     job.externalSignal = options.signal;
     state.until = now + (options.debounce?.wait ?? 0);
     // expiresAt was reassigned above, so re-evaluate the expiry index.
@@ -808,7 +808,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     job.error = undefined;
     job.errorCause = undefined;
     job.logs = [];
-    job.sequence = this.sequence++;
+    job.sequence = this.nextSequence();
     job.controller = undefined;
     job.completion = deferred<JobSnapshot>();
     this.idleNotified = false;
@@ -951,6 +951,12 @@ export class MemoryQueue<Jobs extends JobMap> {
     );
   }
 
+  /** Monotonic tie-breaker that keeps equal priorities in FIFO order. */
+  private nextSequence(): number {
+    this.sequence += 1;
+    return this.sequence;
+  }
+
   /** The single place a job's status changes, so the counters stay exact. */
   private setStatus(job: InternalJob, status: JobStatus): void {
     if (job.status !== status) {
@@ -1048,7 +1054,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     this.pruneStarts(now);
 
     while (
-      this.runningCount < this._concurrency &&
+      this.runningCount < this.concurrencyLimit &&
       this.hasRateCapacity()
     ) {
       const job = this.popReady(now);
@@ -1247,7 +1253,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       const expiresAt = job.expiresAt as number;
       wakeAt = wakeAt === undefined ? expiresAt : Math.min(wakeAt, expiresAt);
     }
-    if (wakeAt === undefined || this.runningCount >= this._concurrency) {
+    if (wakeAt === undefined || this.runningCount >= this.concurrencyLimit) {
       return;
     }
 
@@ -1364,7 +1370,7 @@ export class MemoryQueue<Jobs extends JobMap> {
 
     const delay = await backoffDelay(job.retry.backoff, job.attempt, error);
     job.runAt = Date.now() + delay;
-    job.sequence = this.sequence++;
+    job.sequence = this.nextSequence();
     this.setStatus(job, delay > 0 ? "scheduled" : "queued");
     if (job.status === "scheduled") {
       this.delayed.push(job);

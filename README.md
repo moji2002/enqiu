@@ -113,6 +113,38 @@ The Redis test runs only when `ENQIU_TEST_REDIS_URL` is set, uses a unique
 namespace instead of flushing the database, and closes the worker before the
 injected Redis client.
 
+### Enqiu's own test coverage
+
+The suite runs on Vitest with V8 coverage. `pnpm run check` runs both
+type-checks, the coverage-gated suite, and the build:
+
+```bash
+pnpm run test            # 116 tests
+pnpm run test:coverage   # same, with the coverage report and thresholds
+pnpm run check           # typecheck + typecheck:test + coverage + build
+```
+
+Coverage is enforced in `vitest.config.ts`; the build fails below the
+thresholds in parentheses:
+
+| Metric     | Covered | Threshold |
+| ---------- | ------- | --------- |
+| Statements | 96.35%  | 95%       |
+| Branches   | 91.32%  | 90%       |
+| Functions  | 93.64%  | 93%       |
+| Lines      | 96.35%  | 95%       |
+
+`src/internal/` is at 100% on every metric. `src/redis.ts` is excluded from
+the report because its tests need a live server; run them with:
+
+```bash
+ENQIU_TEST_REDIS_URL=redis://localhost:6379 pnpm run test
+```
+
+Without that variable the seven Redis tests are skipped rather than failing,
+so the reported percentage always reflects code the default run actually
+exercises.
+
 ## Redis
 
 Inject an existing client; Enqiu does not create connections or install a Redis
