@@ -114,8 +114,13 @@ export interface RedisAddOptions
 }
 
 export interface RedisQueueOptions
-  extends Omit<QueueOptions, "retry"> {
+  extends Omit<QueueOptions, "retry" | "historyLimit"> {
   driver: RedisDriverConfig;
+  /**
+   * Terminal jobs retained per status list. Must be at least 1; unlike the
+   * in-memory driver, this one cannot retain nothing. @default 1000
+   */
+  historyLimit?: number;
   /**
    * Start a local worker for these handlers. Set `false` in producer-only
    * processes. @default true
@@ -1029,12 +1034,16 @@ export class RedisQueue<Jobs extends JobMap> {
     this.retry = normalizeRetry(options.retry);
     this.timeout = options.timeout;
     this.rateLimit = options.rateLimit;
-    this.historyLimit = Math.max(1, options.historyLimit ?? 1000);
+    this.historyLimit = options.historyLimit ?? 1000;
     this.logLimit = options.logLimit ?? 100;
     this.started = options.autoStart ?? true;
     this.keys = queueKeys(this.driver.prefix, this.name);
 
     positiveIntegerOrInfinity("concurrency", this.concurrency);
+    // The in-memory driver accepts 0 here. Redis trims its terminal lists with
+    // LTRIM, which cannot express "retain nothing", so this driver requires at
+    // least 1 and says so rather than silently clamping the value.
+    positiveInteger("historyLimit", this.historyLimit);
     nonNegativeInteger("logLimit", this.logLimit);
     if (this.timeout !== undefined) {
       positiveNumber("timeout", this.timeout);
