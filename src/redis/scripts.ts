@@ -363,14 +363,17 @@ for slot = 1, wanted do
     local separator = string.find(candidate, '|', 1, true)
     local candidate_id = string.sub(candidate, separator + 1)
     local candidate_meta = KEYS[1] .. candidate_id
-    if redis.call('HGET', candidate_meta, 'status') == 'queued' then
+    -- One HMGET rather than a HGET per field: Redis bills per command, and
+    -- this runs for every candidate scanned on every claim.
+    local fields = redis.call(
+      'HMGET', candidate_meta,
+      'status', 'concurrencyKey', 'concurrencyLimit',
+      'throttleKey', 'throttleLimit', 'throttleInterval', 'throttleBurst'
+    )
+    if fields[1] == 'queued' then
       local allowed = true
-      local concurrency_key = redis.call(
-        'HGET', candidate_meta, 'concurrencyKey'
-      )
-      local concurrency_limit = tonumber(
-        redis.call('HGET', candidate_meta, 'concurrencyLimit') or '0'
-      )
+      local concurrency_key = fields[2]
+      local concurrency_limit = tonumber(fields[3] or '0')
       if concurrency_key and concurrency_key ~= '' and concurrency_limit > 0 then
         local active = tonumber(
           redis.call('HGET', KEYS[12], concurrency_key) or '0'
@@ -380,17 +383,11 @@ for slot = 1, wanted do
         end
       end
 
-      local throttle_key = redis.call('HGET', candidate_meta, 'throttleKey')
-      local throttle_limit = tonumber(
-        redis.call('HGET', candidate_meta, 'throttleLimit') or '0'
-      )
+      local throttle_key = fields[4]
+      local throttle_limit = tonumber(fields[5] or '0')
       if allowed and throttle_key and throttle_key ~= '' and throttle_limit > 0 then
-        local interval = tonumber(
-          redis.call('HGET', candidate_meta, 'throttleInterval') or '1'
-        )
-        local burst = tonumber(
-          redis.call('HGET', candidate_meta, 'throttleBurst') or '1'
-        )
+        local interval = tonumber(fields[6] or '1')
+        local burst = tonumber(fields[7] or '1')
         local tokens = tonumber(
           redis.call('HGET', KEYS[13], throttle_key) or tostring(burst)
         )
@@ -422,14 +419,19 @@ for slot = 1, wanted do
 
   redis.call('ZREM', KEYS[2], member)
   local meta = KEYS[1] .. id
-  if redis.call('HGET', meta, 'status') == 'queued' then
+  local chosen = redis.call(
+    'HMGET', meta,
+    'status', 'concurrencyKey', 'throttleKey',
+    'name', 'input', 'retries', 'backoff', 'timeout'
+  )
+  if chosen[1] == 'queued' then
     -- Every claimed job needs its own lease token, so derive one per slot.
     local slot_token = ARGV[2] .. ':' .. slot
-    local claim_concurrency = redis.call('HGET', meta, 'concurrencyKey')
+    local claim_concurrency = chosen[2]
     if claim_concurrency and claim_concurrency ~= '' then
       redis.call('HINCRBY', KEYS[12], claim_concurrency, 1)
     end
-    local claim_throttle = redis.call('HGET', meta, 'throttleKey')
+    local claim_throttle = chosen[3]
     if claim_throttle and claim_throttle ~= '' then
       redis.call('HINCRBYFLOAT', KEYS[13], claim_throttle, -1)
     end
@@ -455,12 +457,12 @@ for slot = 1, wanted do
     -- Default every field: a nil inside a nested reply truncates the array.
     claimed[#claimed + 1] = {
       id,
-      redis.call('HGET', meta, 'name') or '',
-      redis.call('HGET', meta, 'input') or '',
+      chosen[4] or '',
+      chosen[5] or '',
       tostring(attempt),
-      redis.call('HGET', meta, 'retries') or '0',
-      redis.call('HGET', meta, 'backoff') or '',
-      redis.call('HGET', meta, 'timeout') or '',
+      chosen[6] or '0',
+      chosen[7] or '',
+      chosen[8] or '',
       slot_token
     }
   end
