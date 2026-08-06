@@ -62,13 +62,21 @@ function Code({ children }: { children: string }) {
   );
 }
 
-const QUICK_START = `import { enqiu } from "enqiu";
+const QUICK_START = `import { enqiu, job } from "enqiu";
+import { z } from "zod";
 
 const jobs = enqiu({
-  sendEmail: async (email, { log }) => {
-    log.info("Sending email", { to: email.to });
-    return { delivered: true };
-  },
+  sendEmail: job({
+    input: z.object({ to: z.string() }),
+    timeout: 30000,
+    run: async (email, { log }) => {
+      log.info("Sending email", { to: email.to });
+      return { delivered: true };
+    },
+  }),
+}, {
+  connection: { host: "localhost", port: 6379 },
+  worker: { concurrency: 10 },
 });
 
 const delivery = await jobs.sendEmail({ to: "hello@example.com" });
@@ -78,7 +86,7 @@ const CRON = `const schedule = await jobs.sendDigest.schedule({
   id: "weekday-digest",
   cron: "0 9 * * 1-5",
   timezone: "Europe/Nicosia",
-  catchUp: true,
+  input: { segment: "active" },
 });`;
 
 function Landing() {
@@ -90,7 +98,7 @@ function Landing() {
         </a>
         <nav aria-label="Sections">
           <a href="#start">start</a>
-          <a href="#drivers">drivers</a>
+          <a href="#built-on">built on</a>
           <a href="#schedules">schedules</a>
           <a href="#limits">limits</a>
           <a href="https://github.com/moji2002/enqiu">github</a>
@@ -100,15 +108,14 @@ function Landing() {
       <main>
         <div className="masthead">
           <p className="alpha" role="note">
-            <strong>Alpha.</strong> Not for production — the API still breaks between releases,
-            and neither durability nor the Redis driver has been validated under sustained load.
-            Published under the <code>alpha</code> tag, so install it as{" "}
-            <code>enqiu@alpha</code>.
+            <strong>Alpha.</strong> Not for production — the API still breaks between releases
+            without a deprecation period. Published under the <code>alpha</code> tag, so install
+            it as <code>enqiu@alpha</code>.
           </p>
           <h1>A job queue you call like a function.</h1>
           <p className="lede">
-            Type-safe background jobs for browsers, Node.js and Bun. Start on the in-memory driver,
-            move to Redis without changing your job API.
+            A type-safe job API on top of BullMQ. BullMQ owns storage, scheduling and execution;
+            Enqiu owns the developer experience.
           </p>
           <p className="sub">
             Define each job once and the name, input and result types are inferred. You keep no
@@ -116,10 +123,10 @@ function Landing() {
             handlers.
           </p>
           <ul className="spec">
-            <li>zero runtime dependencies</li>
+            <li>built on BullMQ</li>
+            <li>Standard Schema</li>
             <li>Node.js 20+</li>
-            <li>Bun</li>
-            <li>browsers</li>
+            <li>Redis</li>
             <li>ESM + TypeScript declarations</li>
           </ul>
         </div>
@@ -135,29 +142,37 @@ function Landing() {
           </p>
         </section>
 
-        <section aria-labelledby="drivers">
-          <h2 id="drivers">Two drivers, one job API</h2>
+        <section aria-labelledby="built-on">
+          <h2 id="built-on">Built on BullMQ</h2>
           <div className="drivers">
             <div className="driver">
-              <h3>memory</h3>
+              <h3>Enqiu adds</h3>
               <p>
-                Process-local and non-durable. Runs in modern browsers as an in-tab queue — suits
-                local-first workflows, client-side processing and tests.
+                Inferred job names, input and result types. Standard Schema validation at the
+                boundary, so bad input never reaches the queue. A per-attempt{" "}
+                <code>timeout</code> with an <code>AbortSignal</code>, and{" "}
+                <code>expiresIn</code> — BullMQ has neither.
               </p>
             </div>
             <div className="driver">
-              <h3>redis</h3>
+              <h3>BullMQ provides</h3>
               <p>
-                Atomic Lua transitions, visibility leases and deterministic recovery, so multiple
-                Node.js or Bun workers can safely share one queue.
+                Storage, scheduling and execution. Retries and backoff, priorities, delays, cron,
+                deduplication, bulk submission, progress, logs, events and cleanup — surfaced
+                through Enqiu&rsquo;s API rather than reimplemented behind it.
               </p>
             </div>
           </div>
           <p className="note">
-            Enqiu never opens connections or pulls in a Redis library — you inject a client you
-            already have. It accepts Bun&rsquo;s <code>send(command, args)</code> shape and
-            node-redis&rsquo; <code>sendCommand(args)</code> shape, and it does not own that
-            client&rsquo;s connection lifecycle.
+            <code>bullmq</code> and <code>ioredis</code> are peer dependencies: Enqiu does not pick
+            versions or open connections for you. Measured against raw BullMQ on the same Redis,
+            the layer costs about 3% for a bare handler and 6% with Zod validation.
+          </p>
+          <p className="note">
+            Gaps in BullMQ&rsquo;s open-source tier are left as gaps rather than faked. Per-key
+            concurrency and per-key rate limiting are BullMQ Pro features; debounce has no
+            open-source equivalent; and a browser queue is not possible, since BullMQ needs Redis
+            and Node.
           </p>
         </section>
 
@@ -170,9 +185,8 @@ function Landing() {
           </p>
           <Code>{CRON}</Code>
           <p className="note">
-            Five-field cron with IANA time zones. Memory schedules live for the process lifetime;
-            Redis schedules are durable and use deterministic occurrence IDs so a run isn&rsquo;t
-            duplicated.
+            Five-field cron with IANA time zones, backed by BullMQ job schedulers, so a schedule
+            survives restarts and is shared by every worker on the queue.
           </p>
           <p className="note">
             Because Enqiu speaks Standard Schema and exposes each job&rsquo;s input schema, one
@@ -189,8 +203,8 @@ function Landing() {
           </p>
           <ul className="bounds">
             <li>
-              The memory driver is process-local and non-durable. Use it for local work, tests, and
-              jobs that may disappear with the process.
+              Enqiu requires Redis and Node. There is no in-browser queue, because BullMQ needs
+              both.
             </li>
             <li>
               Job inputs and results must be JSON-safe. Functions, streams, class instances, sparse

@@ -1,53 +1,66 @@
 # Enqiu
 
-> A type-safe job queue for browsers, Node.js and Bun, with memory and Redis drivers and zero runtime dependencies. You define each job once and call it like a function — the name, input and result types are inferred, so there is no separate registry and no string-keyed dispatch. The same job API runs on the in-memory driver and on Redis.
+> A type-safe job API on top of BullMQ. You define each job once with a schema and call it like a function — the name, input and result types are inferred, so there is no separate registry and no string-keyed dispatch. BullMQ owns storage, scheduling and execution; Enqiu owns the developer experience.
 
 Enqiu coordinates background jobs. It is not a distributed transaction coordinator, and it does not own your Redis connection.
+
+**Status: alpha.** Not for production. The API breaks between releases without a deprecation period, and it is published under the `alpha` dist-tag.
 
 ## Install
 
 ```sh
-npm install enqiu
+npm install enqiu@alpha bullmq ioredis
 ```
 
-Node.js 20 or newer, current stable Bun, or a modern browser. ESM with TypeScript declarations. For the current published version see the npm page below.
+`bullmq` and `ioredis` are peer dependencies — Enqiu does not pick versions or open connections. Node.js 20 or newer, plus Redis. ESM with TypeScript declarations. There is no browser build: BullMQ requires Redis and Node.
 
 ## Core API
 
-- [`enqiu(definitions, options?)`](https://github.com/moji2002/enqiu#quick-start): Creates the job set. Each key is a job name; each value is a handler `async (input, ctx) => result` or a `job({ ... })` policy wrapper. Returns callable jobs plus `queue` and `worker` controls.
-- [`await jobs.<name>(input)`](https://github.com/moji2002/enqiu#quick-start): Enqueues and returns a **handle**. Resolves when the queue *accepts* the job — **not** when the handler finishes.
+- [`enqiu(definitions, options)`](https://github.com/moji2002/enqiu#quick-start): Creates the job set. Each key is a job name; each value is a handler `async (input, ctx) => result` or a `job({ ... })` policy wrapper. `options.connection` is **required** and is passed straight to BullMQ. Returns callable jobs plus `queue` and `worker` controls.
+- [`await jobs.<name>(input, options?)`](https://github.com/moji2002/enqiu#quick-start): Enqueues and returns a **handle**. Resolves when BullMQ *accepts* the job — **not** when the handler finishes.
 - `handle.result`: A promise for the handler's return value. Await it only when the caller needs the result.
-- `handle.refresh()`: Re-reads the persisted record; `.status` is `succeeded`, `failed`, etc.
-- [`redis(client)`](https://github.com/moji2002/enqiu#redis): The Redis driver. Takes an **existing** client — Bun's `send(command, args)` shape or node-redis' `sendCommand(args)` shape.
-- [`jobs.<name>.schedule({ id, cron, timezone, input, catchUp })`](https://github.com/moji2002/enqiu#cron-schedules): Five-field cron with IANA time zones. Returns a schedule with `pause()`, `resume()`, `remove()`.
-- [`jobs.<name>.input`](https://github.com/moji2002/enqiu#hono): The job's Standard Schema input schema, exposed so an HTTP route can validate against it without redefining the type.
-- [Queue controls](https://github.com/moji2002/enqiu#queue-and-worker-controls): `queue.pause()`, `queue.resume()`, `queue.setConcurrency(n)`, `queue.list({ status, limit })`, `queue.get(id)`, `queue.redrive(id)`, `queue.cleanup({ olderThan })`.
-- Worker controls: `worker.pause()`, `worker.resume()`, `worker.onIdle()`, `worker.close()`.
+- `handle.refresh()`: Re-reads the persisted record; `.status` is `queued`, `scheduled`, `running`, `succeeded`, `failed` or `cancelled`.
+- `handle.cancel()`: Removes a job that has not started. Returns `false` once it is running or finished.
+- `jobs.<name>.bulk(inputs, options?)`: Submits many at once.
+- `jobs.<name>.schedule({ id, cron, timezone, input })`: Five-field cron with IANA time zones, backed by BullMQ job schedulers. Returns a handle with `refresh()` and `remove()`.
+- `jobs.<name>.input`: The job's Standard Schema input schema, exposed so an HTTP route can validate against it without redefining the type.
+- Queue controls: `queue.get(id)`, `queue.list({ status, limit, cursor })`, `queue.stats()`, `queue.pause()`, `queue.resume()`, `queue.setConcurrency(n)`, `queue.redrive(id)`, `queue.cleanup({ status, olderThan })`, `queue.on(event, cb)`.
+- Worker controls: `worker.start({ concurrency })`, `worker.pause()`, `worker.resume()`, `worker.onIdle()`, `worker.close({ drain })`.
+
+## Job policies
+
+`job({ input, run, retry, timeout, expiresIn })`.
+
+- `retry: { attempts, backoff }` — BullMQ's, where `attempts` is the total including the first.
+- `timeout` — per attempt. Enqiu enforces this itself and aborts the handler's `AbortSignal`; **BullMQ has no job timeout.**
+- `expiresIn` — fails a job that waited longer than this without running it. Also Enqiu's, and it does not consume a retry.
 
 ## Notes for code generation
 
-- **Awaiting the job call does not await the handler.** `await jobs.sendEmail(x)` gives you a handle once the queue accepts the job. If the generated code needs the handler's return value, it must additionally `await handle.result`. Conflating the two is the most likely mistake with this API.
-- **Ignoring a handle is safe.** It does not create an unhandled rejected promise, so do not wrap fire-and-forget calls in a `.catch(() => {})`.
-- **Do not create a Redis client inside Enqiu.** There is no connection string option. Construct the client in application code, connect it, pass it to `redis(client)`, and close it yourself — Enqiu does not own its lifecycle.
-- **Always close the worker in tests**, and build a fresh queue per test so workers and queued state never leak between cases: `afterEach(async () => { await jobs?.worker.close(); })`.
-- **Job inputs and results must be JSON-safe.** Functions, streams, class instances, sparse arrays and `undefined` fields are not portable queue data. Do not generate handlers that return a class instance or a stream.
+- **`connection` is required.** `enqiu(definitions)` with no second argument will throw. Pass `{ connection: { host, port } }` or an ioredis instance.
+- **Awaiting the job call does not await the handler.** `await jobs.sendEmail(x)` gives you a handle once BullMQ accepts the job. If the generated code needs the return value it must additionally `await handle.result`. Conflating the two is the most likely mistake with this API.
+- **Job inputs and results must be JSON-safe.** Functions, streams, class instances, sparse arrays and `undefined` fields are rejected with the exact path. Do not generate handlers that return a class instance or a stream.
 - **Assume at-least-once delivery.** Retries and worker recovery can run a job more than once; make external side effects idempotent when duplicate execution would be harmful.
-- Durations are plain numbers in milliseconds. `ms("30s")` is fine but is the application's dependency, not Enqiu's.
-- `worker: false` creates a producer-only process that enqueues without running handlers.
+- **Always close the worker in tests**, and build a fresh queue per test with its own `prefix` so state never leaks between cases.
+- Durations are plain numbers in milliseconds.
+- `worker: false` creates a producer-only process that enqueues without running handlers; calling `worker.start()` on it throws.
 - Schemas are optional — a plain typed handler infers its own result type.
 
-## Drivers
+## Not available
 
-- **memory** — process-local and non-durable. Runs in modern browsers as an in-tab queue. Suits local-first workflows, client-side processing and tests. Jobs disappear with the process.
-- **redis** — atomic Lua transitions, visibility leases and deterministic recovery, so multiple Node.js or Bun workers can share one queue safely. Schedules are durable and use deterministic occurrence IDs to avoid duplicate runs.
+Do not generate code using these; they do not exist in Enqiu.
+
+- **Per-key concurrency** (`concurrency: { by }`) and **per-key rate limiting** (`throttle: { by }`) — BullMQ groups are a BullMQ Pro feature, and the open-source limiter is one global `{ max, duration }` per worker.
+- **Debounce** — no open-source equivalent.
+- **In-browser or in-memory queues** — removed in 0.3.0. Pin `enqiu@0.2.x` if you need them.
 
 ## Docs
 
-- [README — full documentation](https://github.com/moji2002/enqiu#readme): quick start, testing, Redis, job policies, progress and logs, cron schedules, Hono, queue and worker controls, runtime support, operational boundaries.
+- [README — full documentation](https://github.com/moji2002/enqiu#readme): quick start, what Enqiu adds, what BullMQ provides, compatibility notes, testing.
 - [npm package](https://www.npmjs.com/package/enqiu): current published version.
-- [Project notes](https://worksonmy.dev/projects/enqiu): design rationale and trade-offs.
+- [BullMQ documentation](https://docs.bullmq.io): everything about storage, retries, schedulers and flows.
 
 ## Optional
 
-- [Runnable memory and Redis testing examples](https://github.com/moji2002/enqiu/tree/main/examples/testing): the Redis test runs only when `ENQIU_TEST_REDIS_URL` is set, uses a unique namespace instead of flushing the database, and closes the worker before the injected client.
+- [Runnable scenarios](https://github.com/moji2002/enqiu/tree/main/examples/scenarios): webhook ingestion, notification campaigns, report progress, a transcoding pool and failure triage. Each asserts its own outcome and needs `ENQIU_TEST_REDIS_URL`.
 - [Issues](https://github.com/moji2002/enqiu/issues)
