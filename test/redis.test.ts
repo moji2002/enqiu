@@ -1,4 +1,13 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { createClient, type RedisClientType } from "redis";
 import {
   job,
@@ -26,6 +35,7 @@ function schema<Input>(): StandardSchemaV1<Input> {
 describeRedis("Redis driver", () => {
   let client: RedisClientType;
   let commandClient: RedisCommandClient;
+  let prefix: string;
 
   beforeAll(async () => {
     client = createClient({ url: redisUrl });
@@ -33,13 +43,31 @@ describeRedis("Redis driver", () => {
     commandClient = client as unknown as RedisCommandClient;
   });
 
-  beforeEach(async () => {
-    await client.flushDb();
+  // A unique namespace per test isolates cases without flushing a database
+  // that other test files are using at the same time. Vitest runs files in
+  // parallel, so flushDb() here wiped examples/testing/jobs.redis.test.ts
+  // mid-run and made it fail intermittently.
+  beforeEach(() => {
+    prefix = `enqiu-test:${randomUUID()}`;
+  });
+
+  afterEach(async () => {
+    for await (const keys of client.scanIterator({
+      MATCH: `${prefix}:*`,
+      COUNT: 100,
+    })) {
+      if (keys.length > 0) await client.del(keys);
+    }
   });
 
   afterAll(async () => {
     await client.quit();
   });
+
+  /** Every queue in a test shares that test's namespace. */
+  function testDriver(options: { pollInterval?: number; visibilityTimeout?: number } = {}) {
+    return redis(commandClient, { ...options, prefix });
+  }
 
   it("accepts and runs a directly called job", async () => {
     const jobs = enqiu(
@@ -48,7 +76,7 @@ describeRedis("Redis driver", () => {
       },
       {
         name: "direct",
-        driver: redis(commandClient, { pollInterval: 5 }),
+        driver: testDriver({ pollInterval: 5 }),
         worker: { concurrency: 2 },
       }
     );
@@ -82,7 +110,7 @@ describeRedis("Redis driver", () => {
         },
       }),
     };
-    const driver = redis(commandClient, {
+    const driver = testDriver({
       pollInterval: 5,
       visibilityTimeout: 1_000,
     });
@@ -136,7 +164,7 @@ describeRedis("Redis driver", () => {
       },
       {
         name: "pause",
-        driver: redis(commandClient, { pollInterval: 5 }),
+        driver: testDriver({ pollInterval: 5 }),
         worker: { concurrency: 2 },
       }
     );
@@ -173,7 +201,7 @@ describeRedis("Redis driver", () => {
       },
       {
         name: "dedupe",
-        driver: redis(commandClient, { pollInterval: 5 }),
+        driver: testDriver({ pollInterval: 5 }),
         worker: { concurrency: 2 },
       }
     );
@@ -211,7 +239,7 @@ describeRedis("Redis driver", () => {
       },
       {
         name: "inspection",
-        driver: redis(commandClient, { pollInterval: 5 }),
+        driver: testDriver({ pollInterval: 5 }),
         worker: { concurrency: 1 },
       }
     );
@@ -244,7 +272,7 @@ describeRedis("Redis driver", () => {
       },
       {
         name: "cron",
-        driver: redis(commandClient, { pollInterval: 5 }),
+        driver: testDriver({ pollInterval: 5 }),
         worker: { concurrency: 1 },
       }
     );
@@ -256,12 +284,14 @@ describeRedis("Redis driver", () => {
       input: "active-users",
     });
     const due = Date.now();
+    // Keys must be derived from this test's namespace; queueKeys builds them
+    // as `${prefix}:{${queueName}}`.
     await client.hSet(
-      "enqiu:{cron}:schedule:weekday-digest",
+      `${prefix}:{cron}:schedule:weekday-digest`,
       "nextRunAt",
       String(due)
     );
-    await client.zAdd("enqiu:{cron}:schedules", {
+    await client.zAdd(`${prefix}:{cron}:schedules`, {
       score: due,
       value: "weekday-digest",
     });

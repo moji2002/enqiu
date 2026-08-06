@@ -2657,8 +2657,30 @@ interface StreamEntry {
   fields: ReadonlyMap<string, string>;
 }
 
+/**
+ * Stream replies arrive in two shapes. RESP2 clients (and Bun's) return the
+ * nested-array form, while node-redis returns XREAD as an object keyed by
+ * stream name — and a Map under RESP3. Treating only arrays as containers
+ * silently yielded zero entries, so no queue event ever reached a listener.
+ */
+function streamContainerValues(value: unknown): unknown[] {
+  if (value instanceof Map) {
+    return [...value.values()];
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value as Record<string, unknown>);
+  }
+  return [];
+}
+
 function firstStreamEntryId(value: unknown): string | undefined {
   if (!Array.isArray(value)) {
+    for (const nested of streamContainerValues(value)) {
+      const id = firstStreamEntryId(nested);
+      if (id) {
+        return id;
+      }
+    }
     return undefined;
   }
   if (
@@ -2684,6 +2706,9 @@ function streamEntries(value: unknown): StreamEntry[] {
 
 function visitStreamValue(value: unknown, entries: StreamEntry[]): void {
   if (!Array.isArray(value)) {
+    for (const nested of streamContainerValues(value)) {
+      visitStreamValue(nested, entries);
+    }
     return;
   }
   if (
