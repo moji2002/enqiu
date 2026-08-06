@@ -31,16 +31,24 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
           readonly issues: readonly StandardSchemaIssue[];
         }
     >;
-    readonly types?: {
-      readonly input: Input;
-      readonly output: Output;
-    };
+    // The spec declares every optional property with an explicit `| undefined`.
+    // Omitting it makes real implementations — Zod, Valibot, ArkType — fail to
+    // assign under `exactOptionalPropertyTypes`, which is exactly the strict
+    // setting this package's own tsconfig enables.
+    readonly types?:
+      | {
+          readonly input: Input;
+          readonly output: Output;
+        }
+      | undefined;
   };
 }
 
 export interface StandardSchemaIssue {
   readonly message: string;
-  readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>;
+  readonly path?:
+    | ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>
+    | undefined;
 }
 
 export type InferSchemaInput<Schema extends StandardSchemaV1> =
@@ -128,29 +136,44 @@ export type HandlerJobDefinition<
   Output = unknown,
 > = JobHandler<Input, Output>;
 
+/**
+ * The constraint `enqiu()` checks each definition against.
+ *
+ * `any` is required in the schema position, not laziness. `JobHandler` is
+ * contravariant in its input, so a handler typed to its schema's output —
+ * which is the entire point of `job({ input: z.object(...) })` — is not
+ * assignable to one declared to accept `unknown`. Pinning the schema to
+ * `StandardSchemaV1<unknown, unknown>` rejected every real schema and
+ * collapsed the inferred API to `unknown`. `JobMap` makes the same trade for
+ * the same reason.
+ */
 export type JobDefinition =
-  | SchemaJobDefinition<StandardSchemaV1<unknown, unknown>, unknown>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | SchemaJobDefinition<any, any>
   | HandlerJobDefinition<never, unknown>;
 
 export type JobDefinitions = Record<string, JobDefinition>;
 
 
+// These conditionals match against the same invariant generic, so they need
+// the same `any` in the positions they are not inferring.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type DefinitionInput<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, unknown>
+  Definition extends SchemaJobDefinition<infer Schema, any>
     ? InferSchemaInput<Schema>
     : Definition extends JobHandler<infer Input, unknown, string>
       ? Input
       : never;
 
 type DefinitionRunInput<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, unknown>
+  Definition extends SchemaJobDefinition<infer Schema, any>
     ? InferSchemaOutput<Schema>
     : Definition extends JobHandler<infer Input, unknown, string>
       ? Input
       : never;
 
 type DefinitionOutput<Definition> =
-  Definition extends SchemaJobDefinition<StandardSchemaV1, infer Output>
+  Definition extends SchemaJobDefinition<any, infer Output>
     ? Awaited<Output>
     : Definition extends JobHandler<unknown, infer Output, string>
       ? Awaited<Output>
@@ -215,9 +238,10 @@ export interface JobCallable<
 }
 
 type DefinitionSchema<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, unknown>
+  Definition extends SchemaJobDefinition<infer Schema, any>
     ? Schema
     : undefined;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export type JobsApi<Definitions extends JobDefinitions> = {
   readonly [Name in keyof Definitions]: JobCallable<

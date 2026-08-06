@@ -62,6 +62,7 @@ import type {
   RedisScheduleSnapshot,
 } from "./types.js";
 
+import type { LocalRetryPolicy } from "../driver.js";
 import { queueKeys } from "./keys.js";
 import { RedisEvents } from "./events.js";
 import { RedisSchedules } from "./schedules.js";
@@ -91,6 +92,7 @@ export class RedisQueue<Jobs extends JobMap> {
   private readonly timeout: number | undefined;
   private readonly rateLimit: RateLimitOptions | undefined;
   private readonly historyLimit: number;
+  private readonly retryPolicies: Record<string, LocalRetryPolicy>;
   private readonly logLimit: number;
   private readonly keys: ReturnType<typeof queueKeys>;
   private readonly local = new Map<string, RedisJobRecord>();  private readonly running = new Set<Promise<void>>();
@@ -116,6 +118,7 @@ export class RedisQueue<Jobs extends JobMap> {
     this.timeout = options.timeout;
     this.rateLimit = options.rateLimit;
     this.historyLimit = options.historyLimit ?? 1000;
+    this.retryPolicies = options.retryPolicies ?? {};
     this.logLimit = options.logLimit ?? 100;
     this.started = options.autoStart ?? true;
     this.keys = queueKeys(this.driver.prefix, this.name);
@@ -138,10 +141,7 @@ export class RedisQueue<Jobs extends JobMap> {
     });
 
     positiveIntegerOrInfinity("concurrency", this.concurrency);
-    // The in-memory driver accepts 0 here. Redis trims its terminal lists with
-    // LTRIM, which cannot express "retain nothing", so this driver requires at
-    // least 1 and says so rather than silently clamping the value.
-    positiveInteger("historyLimit", this.historyLimit);
+    nonNegativeInteger("historyLimit", this.historyLimit);
     nonNegativeInteger("logLimit", this.logLimit);
     if (this.timeout !== undefined) {
       positiveNumber("timeout", this.timeout);
@@ -539,6 +539,28 @@ export class RedisQueue<Jobs extends JobMap> {
     }
   }
 
+  /**
+   * Waits for the queue's backlog to clear and this process's work to finish.
+   *
+   * Deliberately ignores jobs other workers are running: shutting down here
+   * must not block on their in-flight work. A queue paused queue-wide cannot
+   * drain at all, so that returns rather than waiting forever.
+   */
+  private async drainBacklog(): Promise<void> {
+    while (!this.closed) {
+      await this.awaitInFlight();
+      const paused = await this.command("HGET", [this.keys.config, "paused"]);
+      if (String(paused) === "1") {
+        return;
+      }
+      const stats = await this.stats();
+      if (stats.queued === 0 && stats.scheduled === 0) {
+        return;
+      }
+      await sleep(this.driver.pollInterval);
+    }
+  }
+
   /** Waits only for work this process has already claimed. */
   private async awaitInFlight(): Promise<void> {
     while (this.running.size > 0) {
@@ -550,13 +572,14 @@ export class RedisQueue<Jobs extends JobMap> {
     if (this.closed) {
       return;
     }
-    this.started = false;
-    if (options.drain ?? true) {
-      // The worker is already stopped, so waiting for the whole queue would
-      // hang. Drain what this process claimed and let the rest be picked up
-      // by another worker, or by this one on restart.
-      await this.awaitInFlight();
+    if ((options.drain ?? true) && this.workerEnabled) {
+      // Match the in-memory driver: draining means finishing the queued work,
+      // which requires the worker to keep running while it happens.
+      this.started = true;
+      this.ensureWorker();
+      await this.drainBacklog();
     }
+    this.started = false;
     this.closed = true;
     await Promise.allSettled(this.running);
     await this.workerLoop;
@@ -893,11 +916,20 @@ export class RedisQueue<Jobs extends JobMap> {
       }
     } catch (cause) {
       const error = toError(cause);
-      const retry =
-        claimed.attempt <= claimed.retry.retries;
-      const delay = retry
-        ? retryDelay(claimed.retry.backoff, claimed.attempt)
-        : 0;
+      // Attempt budget comes from Redis; the predicate and any function
+      // backoff come from this worker's own definition of the job.
+      const policy = this.retryPolicies[claimed.name];
+      let retry = claimed.attempt <= claimed.retry.retries;
+      if (retry && policy?.when) {
+        retry = await policy.when(error, claimed.attempt);
+      }
+      let delay = 0;
+      if (retry) {
+        delay = policy?.backoff
+          ? await policy.backoff(claimed.attempt, error)
+          : retryDelay(claimed.retry.backoff, claimed.attempt);
+        nonNegativeNumber("backoff delay", delay);
+      }
       const failed = await this.fail(claimed, error, retry, delay);
       if (failed) {
         local.error = serializeError(error);
@@ -1174,7 +1206,11 @@ function normalizeRetry(
   if (typeof retry.backoff === "number" && retry.backoff < 0) {
     throw new RangeError("retry.backoff must not be negative");
   }
-  return { retries: retry.retries, backoff: retry.backoff };
+  // A function backoff is code and cannot be stored. It is not lost: the
+  // worker resolves it from its own definition of the job at execution time.
+  const backoff =
+    typeof retry.backoff === "function" ? undefined : retry.backoff;
+  return { retries: retry.retries, backoff };
 }
 
 function retryDelay(

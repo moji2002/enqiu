@@ -14,8 +14,8 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, sleep, step, summary } from "./_harness.mjs";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, sleep, step, summary } from "./_harness.js";
 
 heading(
   "10. Failure triage and shutdown",
@@ -24,7 +24,7 @@ heading(
 
 let dependencyUp = false;
 const delivered = [];
-const telemetry = [];
+const telemetry: string[] = [];
 
 const jobs = enqiu(
   {
@@ -54,7 +54,7 @@ await jobs.worker.onIdle();
 const failedPage = await jobs.queue.list({ status: "failed", limit: 100 });
 expect(failedPage.jobs.length === 4, "all 4 payouts are queryable in `failed`");
 expect(delivered.length === 0, "and none of them reached the partner");
-note(`failure recorded: ${failedPage.jobs[0].error.message}`);
+note(`failure recorded: ${failedPage.jobs[0]?.error?.message ?? "unknown"}`);
 expect(telemetry.includes("job.retry"), "telemetry saw the retries");
 expect(telemetry.includes("job.failed"), "and the eventual failures");
 

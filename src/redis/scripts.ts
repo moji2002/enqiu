@@ -265,7 +265,11 @@ for _, id in ipairs(stale) do
     )
     local ttl = finish_key(meta, now)
     redis.call('LPUSH', KEYS[10], id)
-    redis.call('LTRIM', KEYS[10], 0, history_limit - 1)
+    if history_limit > 0 then
+      redis.call('LTRIM', KEYS[10], 0, history_limit - 1)
+    else
+      redis.call('DEL', KEYS[10])
+    end
     redis.call('PEXPIRE', meta, ttl)
     redis.call(
       'XADD', KEYS[15], 'MAXLEN', '~', '10000', '*',
@@ -305,7 +309,11 @@ for _, id in ipairs(expired) do
         'error', ARGV[7]
       )
       redis.call('LPUSH', KEYS[7], id)
-      redis.call('LTRIM', KEYS[7], 0, history_limit - 1)
+      if history_limit > 0 then
+        redis.call('LTRIM', KEYS[7], 0, history_limit - 1)
+      else
+        redis.call('DEL', KEYS[7])
+      end
       local ttl = finish_key(meta, now)
       redis.call('PEXPIRE', meta, ttl)
       redis.call(
@@ -501,7 +509,12 @@ if dedupe and dedupe ~= '' then
   end
 end
 redis.call('LPUSH', KEYS[3], ARGV[1])
-redis.call('LTRIM', KEYS[3], 0, tonumber(ARGV[6]) - 1)
+local history_limit = tonumber(ARGV[6])
+if history_limit > 0 then
+  redis.call('LTRIM', KEYS[3], 0, history_limit - 1)
+else
+  redis.call('DEL', KEYS[3])
+end
 redis.call('PEXPIRE', meta, math.max(tonumber(ARGV[5]), key_retention))
 redis.call(
   'XADD', KEYS[6], 'MAXLEN', '~', '10000', '*',
@@ -572,7 +585,12 @@ if dedupe and dedupe ~= '' then
   end
 end
 redis.call('LPUSH', KEYS[5], ARGV[1])
-redis.call('LTRIM', KEYS[5], 0, tonumber(ARGV[8]) - 1)
+local history_limit = tonumber(ARGV[8])
+if history_limit > 0 then
+  redis.call('LTRIM', KEYS[5], 0, history_limit - 1)
+else
+  redis.call('DEL', KEYS[5])
+end
 redis.call('PEXPIRE', meta, math.max(tonumber(ARGV[7]), key_retention))
 redis.call(
   'XADD', KEYS[9], 'MAXLEN', '~', '10000', '*',
@@ -629,7 +647,12 @@ if dedupe and dedupe ~= '' then
   end
 end
 redis.call('LPUSH', KEYS[5], ARGV[1])
-redis.call('LTRIM', KEYS[5], 0, tonumber(ARGV[5]) - 1)
+local history_limit = tonumber(ARGV[5])
+if history_limit > 0 then
+  redis.call('LTRIM', KEYS[5], 0, history_limit - 1)
+else
+  redis.call('DEL', KEYS[5])
+end
 redis.call('PEXPIRE', meta, math.max(tonumber(ARGV[4]), key_retention))
 redis.call(
   'XADD', KEYS[9], 'MAXLEN', '~', '10000', '*',

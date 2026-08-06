@@ -10,8 +10,8 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, step, summary } from "./_harness.mjs";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, step, summary } from "./_harness.js";
 
 heading(
   "9. Sensor ingestion",

@@ -11,15 +11,15 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, sleep, step, summary } from "./_harness.mjs";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, sleep, step, summary } from "./_harness.js";
 
 heading(
   "5. Local-first autosave",
   "an in-tab queue: debounce keystrokes, drop work that went stale"
 );
 
-const saves = [];
+const saves: Array<{ docId: string; body: string }> = [];
 
 const jobs = enqiu({
   saveDocument: job({
@@ -54,7 +54,7 @@ await jobs.worker.onIdle();
 
 expect(saves.length === 2, `5 keystrokes + 1 edit collapsed into ${saves.length} saves`);
 const doc1 = saves.find((s) => s.docId === "doc-1");
-expect(doc1.body === "Hello", "doc-1 saved the LATEST body, not the first");
+expect(doc1?.body === "Hello", "doc-1 saved the LATEST body, not the first");
 expect(saves.some((s) => s.docId === "doc-2"), "doc-2 debounced independently — the key isolates documents");
 
 step("queueing an index refresh, then stalling the worker past its deadline …");

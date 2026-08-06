@@ -10,20 +10,22 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
+import { job } from "../../src/index.js";
 import {
   backends,
+  type Backend,
   driverOptions,
   expect,
   heading,
+  makeJobs,
   note,
   step,
   summary,
-} from "./_harness.mjs";
+} from "./_harness.js";
 
 class PermanentError extends Error {}
 
-async function run(backend) {
+async function run(backend: Backend) {
   heading(
     `1. Webhook ingestion  (${backend})`,
     "at-least-once delivery means duplicates are the provider's normal behaviour"
@@ -32,12 +34,12 @@ async function run(backend) {
   const handled = [];
   let attemptsForFlaky = 0;
 
-  const { options, close } = await driverOptions(
+  const driver = await driverOptions(
     backend === "redis" ? process.env.ENQIU_TEST_REDIS_URL : undefined,
     `enqiu-scenario-1:${Date.now()}`
   );
 
-  const jobs = enqiu(
+  const jobs = makeJobs(
     {
       handleWebhook: job({
         input: z.object({ eventId: z.string(), type: z.string() }),
@@ -60,7 +62,7 @@ async function run(backend) {
         },
       }),
     },
-    options
+    driver
   );
 
   step("provider delivers evt_1 …");
@@ -104,7 +106,7 @@ async function run(backend) {
   }
 
   await jobs.worker.close();
-  await close();
+  await driver.close();
   summary(`Scenario 1 (${backend})`);
 }
 

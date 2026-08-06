@@ -10,15 +10,16 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, step, summary } from "./_harness.mjs";
+import type { Progress } from "../../src/index.js";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, step, summary } from "./_harness.js";
 
 heading(
   "7. Media transcoding pool",
   "a bounded CPU pool, priority for paid uploads, resizable at runtime"
 );
 
-const order = [];
+const order: string[] = [];
 let concurrent = 0;
 let peak = 0;
 const progressByJob = new Map();
@@ -44,7 +45,7 @@ const jobs = enqiu(
 );
 
 jobs.queue.on("progress", (snapshot) => {
-  progressByJob.set(snapshot.id, snapshot.progress.completed);
+  progressByJob.set(snapshot.id, (snapshot.progress as Progress).completed);
 });
 
 step("a free-tier backlog of 6 uploads arrives …");

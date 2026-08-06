@@ -10,15 +10,15 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, step, summary } from "./_harness.mjs";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, step, summary } from "./_harness.js";
 
 heading(
   "6. Order processing",
   "concurrency limit 1 keyed by order id is a per-entity lock"
 );
 
-const ledger = [];
+const ledger: string[] = [];
 const inFlight = new Map();
 let overlaps = 0;
 

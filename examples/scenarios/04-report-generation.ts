@@ -10,16 +10,17 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, step, summary } from "./_harness.mjs";
+import type { Progress } from "../../src/index.js";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, step, summary } from "./_harness.js";
 
 heading(
   "4. Report generation",
   "progress streaming, structured logs, and a timeout that actually aborts"
 );
 
-let abortObserved = false;
-const progressSeen = [];
+let abortObserved = false as boolean;
+const progressSeen: number[] = [];
 
 const jobs = enqiu({
   buildReport: job({
@@ -53,7 +54,7 @@ const jobs = enqiu({
 
 // A UI would push these over a WebSocket; here we just collect them.
 jobs.queue.on("progress", (snapshot) => {
-  progressSeen.push(snapshot.progress.completed);
+  progressSeen.push((snapshot.progress as Progress).completed);
 });
 
 step("submitting a 5-page report; the call returns before it runs …");
@@ -67,9 +68,9 @@ expect(progressSeen.length === 5, `progress streamed ${progressSeen.length} upda
 expect(progressSeen.at(-1) === 5, "the final update reported completion");
 
 const snapshot = await handle.refresh();
-expect(snapshot.logs.length === 2, "structured logs are retained on the job");
-note(`logs: ${snapshot.logs.map((l) => `${l.level}=${l.message}`).join(", ")}`);
-expect(snapshot.progress.message === "page 5 of 5", "the last progress payload persisted");
+expect((snapshot.logs ?? []).length === 2, "structured logs are retained on the job");
+note(`logs: ${(snapshot.logs ?? []).map((l) => `${l.level}=${l.message}`).join(", ")}`);
+expect((snapshot.progress as Progress).message === "page 5 of 5", "the last progress payload persisted");
 
 step("submitting a report that hangs …");
 const stuck = await jobs.hangingReport({});

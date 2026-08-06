@@ -12,8 +12,8 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, sleep, step, summary } from "./_harness.mjs";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, sleep, step, summary } from "./_harness.js";
 
 heading(
   "8. Inference orchestration",
@@ -22,7 +22,7 @@ heading(
 
 const slots = new Map();
 const peak = new Map();
-let cancelledMidFlight = false;
+let cancelledMidFlight = false as boolean;
 
 const jobs = enqiu(
   {

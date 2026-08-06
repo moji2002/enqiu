@@ -26,7 +26,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:example": "pnpm run build && vitest run examples/testing",
-    "scenarios": "pnpm run build && node examples/scenarios/run-all.mjs",
+    "scenarios": "tsx examples/scenarios/run-all.ts",
     "test:watch": "vitest",
     "check": "pnpm run typecheck && pnpm run typecheck:test && pnpm run test:coverage && pnpm run build",
     "prepack": "pnpm run check"
@@ -73,6 +73,7 @@
     "@vitest/coverage-v8": "^1.6.1",
     "hono": "^4.12.32",
     "redis": "^6.1.0",
+    "tsx": "^4.23.9",
     "typescript": "^5.9.0",
     "vitest": "^1.6.1",
     "zod": "^4.4.3"

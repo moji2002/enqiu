@@ -9,15 +9,15 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
-import { expect, heading, note, step, summary } from "./_harness.mjs";
+import { enqiu, job } from "../../src/index.js";
+import { expect, heading, note, step, summary } from "./_harness.js";
 
 heading(
   "3. Notification campaign",
   "bulk submission, priority tiers, delayed sends, and a cron digest"
 );
 
-const sent = [];
+const sent: string[] = [];
 
 const jobs = enqiu(
   {

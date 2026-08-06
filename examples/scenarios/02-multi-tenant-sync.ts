@@ -10,17 +10,19 @@
  */
 
 import { z } from "zod";
-import { enqiu, job } from "../../dist/index.js";
+import { job } from "../../src/index.js";
 import {
   backends,
+  type Backend,
   driverOptions,
   expect,
   heading,
+  makeJobs,
   step,
   summary,
-} from "./_harness.mjs";
+} from "./_harness.js";
 
-async function run(backend) {
+async function run(backend: Backend) {
   heading(
     `2. Multi-tenant API sync  (${backend})`,
     "per-tenant concurrency cap AND per-tenant token bucket, together"
@@ -29,12 +31,12 @@ async function run(backend) {
   const active = new Map();
   const peak = new Map();
 
-  const { options, close } = await driverOptions(
+  const driver = await driverOptions(
     backend === "redis" ? process.env.ENQIU_TEST_REDIS_URL : undefined,
     `enqiu-scenario-2:${Date.now()}`
   );
 
-  const jobs = enqiu(
+  const jobs = makeJobs(
     {
       syncAccount: job({
         input: z.object({ tenantId: z.string(), accountId: z.string() }),
@@ -58,7 +60,8 @@ async function run(backend) {
         },
       }),
     },
-    { ...options, worker: { concurrency: 16 } }
+    driver,
+    { worker: { concurrency: 16 } }
   );
 
   step("acme and globex each submit 6 account syncs, all at once …");
@@ -88,7 +91,7 @@ async function run(backend) {
   step(`finished in ${elapsed}ms`);
 
   await jobs.worker.close();
-  await close();
+  await driver.close();
   summary(`Scenario 2 (${backend})`);
 }
 

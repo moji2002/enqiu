@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scenarios = readdirSync(here)
-  .filter((name) => /^\d\d-.*\.mjs$/.test(name))
+  .filter((name) => /^\d\d-.*\.ts$/.test(name))
   .sort();
 
 const failures = [];
@@ -20,7 +20,7 @@ const started = Date.now();
 
 for (const scenario of scenarios) {
   const code = await new Promise((resolve) => {
-    spawn(process.execPath, [join(here, scenario)], { stdio: "inherit" })
+    spawn("npx", ["tsx", join(here, scenario)], { stdio: "inherit", shell: process.platform === "win32" })
       .on("close", resolve);
   });
   if (code !== 0) failures.push(scenario);

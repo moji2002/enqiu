@@ -7,5 +7,10 @@
     "rootDir": ".",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "examples/testing/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "examples/testing/**/*.ts",
+    "examples/scenarios/**/*.ts"
+  ]
 }

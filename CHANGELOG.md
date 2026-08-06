@@ -46,6 +46,29 @@ real-world load.
 
 ### Fixed
 
+- **`enqiu()` did not type-check with a real schema.** Its copy of the Standard
+  Schema types omitted the explicit `| undefined` the spec puts on every
+  optional property, so a Zod, Valibot or ArkType schema failed to assign under
+  `exactOptionalPropertyTypes`. `JobDefinition` also pinned the schema to
+  `StandardSchemaV1<unknown, unknown>`, and since `JobHandler` is contravariant
+  in its input — and the generic is invariant in `Schema` — a handler typed to
+  its own schema was rejected. The result was that the README's headline
+  example did not compile: `jobs.sendEmail` came out `possibly undefined` and
+  its result `unknown`. No test caught it because every test used a hand-rolled
+  schema with `types: undefined`.
+- **`when` retry predicates and function backoffs were silently dropped by the
+  Redis driver.** They were treated as data to be serialised, when they are
+  code: a worker always holds the definition of the job it runs, so it can
+  resolve them locally. It now does, and a function backoff is no longer
+  written to Redis at all.
+- **`historyLimit: 0` was rejected by the Redis driver.** `LTRIM` cannot express
+  an empty window (`LTRIM k 0 -1` keeps everything), so the scripts now delete
+  the list instead. Both drivers accept 0 and retain nothing.
+- **`close({ drain: true })` abandoned queued work on Redis.** It stopped the
+  worker before draining, so only already-claimed jobs finished while the
+  in-memory driver finished the whole backlog. The Redis driver now keeps its
+  worker running until the backlog clears, ignoring other workers' in-flight
+  jobs so a deploy does not block on them.
 - **`worker.onIdle()` was effectively a no-op on the Redis driver.** It waited
   only on work this process had already claimed, so calling it right after
   submitting — before the poll loop had claimed anything — returned immediately

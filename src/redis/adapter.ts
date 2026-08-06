@@ -80,6 +80,7 @@ export class RedisDriverAdapter implements QueueDriver {
       compact({
         driver: config,
         name: options.name,
+        retryPolicies: options.retryPolicies,
         worker: options.worker,
         concurrency: options.concurrency,
         autoStart: options.autoStart,

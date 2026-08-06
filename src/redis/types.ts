@@ -12,6 +12,7 @@ import type { SerializedError } from "../internal/errors.js";
 import type { BackoffOptions } from "../internal/timing.js";
 import type {
   DriverFactory,
+  LocalRetryPolicy,
   DriverScheduleRegistration,
   ScheduleHandle,
   ScheduleSnapshot,
@@ -69,10 +70,9 @@ export interface RedisAddOptions
 export interface RedisQueueOptions
   extends Omit<QueueOptions, "retry" | "historyLimit"> {
   driver: RedisDriverConfig;
-  /**
-   * Terminal jobs retained per status list. Must be at least 1; unlike the
-   * in-memory driver, this one cannot retain nothing. @default 1000
-   */
+  /** Retry decisions that cannot be serialised; resolved locally at execution. */
+  retryPolicies?: Record<string, LocalRetryPolicy>;
+  /** Terminal jobs retained per status list. 0 retains none. @default 1000 */
   historyLimit?: number;
   /**
    * Start a local worker for these handlers. Set `false` in producer-only

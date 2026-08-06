@@ -8,6 +8,7 @@
 
 import type {
   AddOptions,
+  MaybePromise,
   JobHandler,
   JobSnapshot,
   JobStatus,
@@ -18,8 +19,23 @@ import type {
 
 export type DriverHandlers = Record<string, JobHandler<unknown, unknown>>;
 
+/**
+ * Retry decisions that are code rather than data.
+ *
+ * A `when` predicate or a function backoff cannot be serialised, but it does
+ * not need to be: the process that runs a handler is by definition the process
+ * that holds that job's definition. A distributed driver resolves these from
+ * its own registry at execution time instead of reading them off the wire.
+ */
+export interface LocalRetryPolicy {
+  when?: (error: Error, attempt: number) => MaybePromise<boolean>;
+  backoff?: (attempt: number, error: Error) => MaybePromise<number>;
+}
+
 export interface DriverQueueOptions {
   name?: string;
+  /** Non-serialisable retry decisions, keyed by job name. */
+  retryPolicies?: Record<string, LocalRetryPolicy>;
   concurrency?: number;
   autoStart?: boolean;
   /** Whether this process should run handlers, or only submit work. */

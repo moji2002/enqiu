@@ -346,12 +346,13 @@ describeRedis("Redis driver surface", () => {
     expect(() => redis(commandClient, { retention: -1 })).toThrow(
       "retention must be a positive finite number"
     );
+    // 0 is valid — it means retain no history, same as the memory driver.
     expect(() =>
       enqiu(
         { work: async (value: number) => value },
-        { driver: testDriver(), worker: false, historyLimit: 0 }
+        { driver: testDriver(), worker: false, historyLimit: -1 }
       )
-    ).toThrow("historyLimit must be a positive integer");
+    ).toThrow("historyLimit must be a non-negative integer");
   });
 
   it("waits for the whole queue in onIdle, not just local work", async () => {
@@ -371,5 +372,133 @@ describeRedis("Redis driver surface", () => {
     expect(stats.running).toBe(0);
     expect(stats.succeeded).toBe(6);
     await jobs.worker.close();
+  });
+
+  it("honours a `when` predicate and a function backoff on Redis", async () => {
+    let attempts = 0;
+    const backoffCalls: number[] = [];
+
+    const jobs = enqiu(
+      {
+        permanent: job({
+          input: schema<number>(),
+          retry: {
+            attempts: 5,
+            // Both of these are code, not data. They never reach Redis; the
+            // worker resolves them from its own definition of the job.
+            when: (error) => !error.message.includes("permanent"),
+            backoff: (attempt) => {
+              backoffCalls.push(attempt);
+              return 5;
+            },
+          },
+          run: async () => {
+            attempts += 1;
+            throw new Error("permanent: bad request");
+          },
+        }),
+        transient: job({
+          input: schema<number>(),
+          retry: {
+            attempts: 3,
+            when: (error) => !error.message.includes("permanent"),
+            backoff: (attempt) => {
+              backoffCalls.push(attempt);
+              return 5;
+            },
+          },
+          run: async () => {
+            attempts += 1;
+            if (attempts < 3) throw new Error("503 transient");
+            return "recovered";
+          },
+        }),
+      },
+      { name: "predicates", driver: testDriver(), worker: { concurrency: 1 } }
+    );
+
+    const permanent = await jobs.permanent(1);
+    await expect(permanent.result).rejects.toThrow("permanent");
+    expect(attempts).toBe(1);
+    expect(backoffCalls).toEqual([]);
+    expect((await permanent.refresh()).status).toBe("failed");
+
+    attempts = 0;
+    const transient = await jobs.transient(1);
+    await expect(transient.result).resolves.toBe("recovered");
+    expect(attempts).toBe(3);
+    expect(backoffCalls).toEqual([1, 2]);
+
+    await jobs.worker.close();
+  });
+
+  it("retains no history when historyLimit is 0, matching the memory driver", async () => {
+    const jobs = enqiu(
+      { work: async (value: number) => value },
+      {
+        name: "nohistory",
+        driver: testDriver(),
+        worker: { concurrency: 2 },
+        historyLimit: 0,
+      }
+    );
+
+    await jobs.work.bulk([1, 2, 3, 4, 5]);
+    await jobs.worker.onIdle();
+
+    // LTRIM cannot express an empty window, so the scripts DEL the list.
+    const stats = await jobs.queue.stats();
+    expect(stats.succeeded).toBe(0);
+    expect(stats.total).toBe(0);
+    await jobs.worker.close();
+  });
+
+  it("still bounds history at a positive limit", async () => {
+    const jobs = enqiu(
+      { work: async (value: number) => value },
+      {
+        name: "bounded",
+        driver: testDriver(),
+        worker: { concurrency: 2 },
+        historyLimit: 2,
+      }
+    );
+
+    await jobs.work.bulk([1, 2, 3, 4, 5]);
+    await jobs.worker.onIdle();
+    expect((await jobs.queue.stats()).succeeded).toBe(2);
+    await jobs.worker.close();
+  });
+
+  it("finishes queued work on a draining close, and abandons it otherwise", async () => {
+    const done: number[] = [];
+    const make = (name: string) =>
+      enqiu(
+        {
+          work: job({
+            input: schema<number>(),
+            run: async (value) => {
+              await new Promise((resolve) => setTimeout(resolve, 15));
+              done.push(value);
+              return value;
+            },
+          }),
+        },
+        { name, driver: testDriver(), worker: { concurrency: 1 } }
+      );
+
+    const draining = make("drain-yes");
+    await draining.work.bulk([1, 2, 3, 4]);
+    // The default drains: every queued job runs before close() resolves,
+    // the same guarantee the in-memory driver gives.
+    await draining.worker.close();
+    expect(done).toHaveLength(4);
+    expect((await draining.queue.stats()).queued).toBe(0);
+
+    done.length = 0;
+    const abrupt = make("drain-no");
+    await abrupt.work.bulk([1, 2, 3, 4]);
+    await abrupt.worker.close({ drain: false });
+    expect(done.length).toBeLessThan(4);
   });
 });

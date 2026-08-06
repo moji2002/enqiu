@@ -33,6 +33,7 @@ import type {
   QueueDriver,
   ScheduleHandle,
 } from "./driver.js";
+import type { LocalRetryPolicy } from "./driver.js";
 import type {
   AnyJobSnapshot,
   BulkOptions,
@@ -135,6 +136,19 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
       throw new TypeError("At least one job definition is required");
     }
 
+    // `when` predicates and function backoffs are code, so they stay here
+    // rather than being written to the backend. A worker always holds the
+    // definitions for the jobs it runs, so it can resolve them locally.
+    const retryPolicies: Record<string, LocalRetryPolicy> = {};
+    for (const [name, definition] of this.definitions) {
+      const policy = definition.policy.retry;
+      if (typeof policy !== "object") continue;
+      const local: LocalRetryPolicy = {};
+      if (policy.when) local.when = policy.when;
+      if (typeof policy.backoff === "function") local.backoff = policy.backoff;
+      if (local.when || local.backoff) retryPolicies[name] = local;
+    }
+
     const workerOptions = options.worker === false ? undefined : options.worker;
     const worker = options.worker !== false;
     const concurrency = worker ? workerOptions?.concurrency : 1;
@@ -142,6 +156,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> {
 
     const queueOptions: DriverQueueOptions = compact({
       name: options.name,
+      retryPolicies,
       worker,
       concurrency,
       autoStart,
