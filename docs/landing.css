@@ -2,29 +2,7 @@
    rather than with prose. Space Grotesk + Space Mono, cobalt accent:
    deliberately distinct from purifai (warm serif) and unsmuggle (cool sans). */
 
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 300 700;
-  src: url('/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Space Mono';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 400;
-  src: url('/fonts/space-mono-latin-400-normal.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Space Mono';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 700;
-  src: url('/fonts/space-mono-latin-700-normal.woff2') format('woff2');
-}
+/* Both families load from Google Fonts; see the <link> tags in index.html. */
 
 :root {
   --paper: #f7f8fa;

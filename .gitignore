@@ -9,14 +9,9 @@ site/.next/
 site/.vinext/
 site/.wrangler/
 
-# Generated deployment mirrors
-site/public/index.html
-site/public/landing.js
-site/public/landing.css
-site/public/landing*.woff2
-site/public/og.png
-site/public/playground/
-site/public/enqiu/
+# Generated deployment mirror. sync-landing.mjs builds this whole directory
+# from docs/, and vercel.json points outputDirectory at it.
+site/public/
 
 # Local tooling and caches
 .remember/
