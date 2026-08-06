@@ -475,8 +475,8 @@ export class MemoryQueue<Jobs extends JobMap> {
 
     validatePositiveIntegerOrInfinity("concurrency", this._concurrency);
     validateTimeout(this.defaultTimeout);
-    validateHistoryLimit(this.historyLimit);
-    validateHistoryLimit(this.logLimit);
+    validateNonNegativeInteger("historyLimit", this.historyLimit);
+    validateNonNegativeInteger("logLimit", this.logLimit);
     if (this.rateLimit) {
       validatePositiveInteger("rateLimit.limit", this.rateLimit.limit);
       validatePositiveNumber("rateLimit.interval", this.rateLimit.interval);
@@ -875,8 +875,10 @@ export class MemoryQueue<Jobs extends JobMap> {
     const threshold = Date.now() - olderThan;
     const removed: string[] = [];
     for (const [id, job] of this.records) {
+      if (removed.length >= limit) {
+        break;
+      }
       if (
-        removed.length >= limit ||
         !isTerminal(job.status) ||
         (statuses !== undefined && !statuses.has(job.status)) ||
         (job.finishedAt ?? Number.POSITIVE_INFINITY) > threshold
@@ -1701,10 +1703,6 @@ function validatePolicyKey(name: string, value: string): void {
   if (!value.trim()) {
     throw new TypeError(`${name} must not be empty`);
   }
-}
-
-function validateHistoryLimit(value: number): void {
-  validateNonNegativeInteger("historyLimit", value);
 }
 
 function validatePositiveInteger(name: string, value: number): void {

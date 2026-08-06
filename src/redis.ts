@@ -2395,27 +2395,6 @@ async function retryDelay(
   return Math.max(0, base * (1 - Math.random() * jitter));
 }
 
-function toSnapshot(record: RedisJobRecord): JobSnapshot {
-  return {
-    id: record.id,
-    name: record.name,
-    input: record.input,
-    status: record.status,
-    priority: record.priority,
-    attempt: record.attempt,
-    retries: record.retry.retries,
-    createdAt: record.createdAt,
-    runAt: record.runAt,
-    expiresAt: record.expiresAt,
-    startedAt: record.startedAt,
-    finishedAt: record.finishedAt,
-    progress: record.progress,
-    output: record.output,
-    error: record.error,
-    logs: [...record.logs],
-  };
-}
-
 function snapshotFromFields(values: unknown[]): JobSnapshot {
   const text = (index: number): string =>
     values[index] === null || values[index] === undefined
@@ -2464,22 +2443,6 @@ function applySnapshot(
   record.output = value.output;
   record.error = value.error;
   record.logs = [...(value.logs ?? [])];
-}
-
-function fallbackSnapshot(id: string): JobSnapshot {
-  const now = Date.now();
-  return {
-    id,
-    name: "unknown",
-    input: undefined,
-    status: "cancelled",
-    priority: 0,
-    attempt: 0,
-    retries: 0,
-    createdAt: now,
-    runAt: now,
-    finishedAt: now,
-  };
 }
 
 function runAt(
