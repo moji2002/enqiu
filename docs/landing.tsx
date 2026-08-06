@@ -99,6 +99,12 @@ function Landing() {
 
       <main>
         <div className="masthead">
+          <p className="alpha" role="note">
+            <strong>Alpha.</strong> Not for production — the API still breaks between releases,
+            and neither durability nor the Redis driver has been validated under sustained load.
+            Published under the <code>alpha</code> tag, so install it as{" "}
+            <code>enqiu@alpha</code>.
+          </p>
           <h1>A job queue you call like a function.</h1>
           <p className="lede">
             Type-safe background jobs for browsers, Node.js and Bun. Start on the in-memory driver,

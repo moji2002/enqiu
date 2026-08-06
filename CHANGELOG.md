@@ -5,6 +5,67 @@ All notable changes to this project are documented here. The project follows
 
 ## Unreleased
 
+## [0.2.0-alpha.0] - 2026-08-06
+
+Enqiu is now labelled alpha and published under the `alpha` dist-tag, so
+`npm install enqiu` will not resolve to it. It is not suitable for production:
+the API will keep breaking without a deprecation period, and neither the
+durability guarantees nor the Redis driver have been validated under sustained
+real-world load.
+
+### Breaking
+
+- `RedisEnqiuOptions` is now `DriverEnqiuOptions`, and its `driver` field is
+  typed as `DriverFactory` rather than `RedisDriver`. Any driver factory is
+  accepted, which is what makes the backend an extension point rather than a
+  hard-coded pair.
+- The Redis driver now rejects a `historyLimit` below 1 instead of silently
+  clamping it. The in-memory driver still accepts 0; Redis trims its terminal
+  lists with `LTRIM`, which cannot express "retain nothing".
+
+### Added
+
+- A `QueueDriver` seam (`src/driver.ts`) that both backends implement, with
+  `DriverFactory` carrying its own queue constructor.
+- Cursor pagination for `queue.list()` on the in-memory driver, matching the
+  Redis driver's offset semantics.
+- `pnpm run test:coverage`, with thresholds enforced in `vitest.config.ts`.
+
+### Changed
+
+- The package is tree-shakable. `api.ts` no longer imports the Redis driver, so
+  a memory-only bundle drops from 137,786 to 72,562 bytes (-47%), losing all 215
+  lines of Lua and the `RedisQueue` class. Importing `redis()` still pulls them
+  in, as it should.
+- `MemoryQueue` keeps live per-status counters instead of scanning its record
+  map, so `size` and `stats` are O(1). Pushing 20,000 jobs through a
+  concurrency-64 queue went from 3,102ms to 144ms (6,447 to 139,370 jobs/sec).
+- Validators, error serialization, and backoff arithmetic moved into
+  `src/internal/`, replacing per-driver copies. Both drivers now reject a
+  non-finite or negative backoff delay rather than the Redis driver clamping it.
+
+### Fixed
+
+- A bad `logLimit` was reported as `historyLimit must be a non-negative integer`,
+  because the validator hardcoded the wrong field name.
+- `queue.list({ cursor })` was honoured by Redis and silently ignored in memory,
+  so code that paginated correctly against Redis re-read page one forever
+  against the in-memory driver.
+- `list.limit` was range-checked by Redis but not by the in-memory driver.
+- `MemoryQueue.cleanup` kept scanning every remaining record after it reached
+  the requested limit.
+- Removed two unused functions from the Redis driver that `noUnusedLocals`,
+  being disabled, never flagged.
+
+### Internal
+
+- Test count rose from 36 to 116. Coverage is 96.42% of statements and 91.38% of
+  branches, with `src/internal/` fully covered. `src/redis.ts` is excluded from
+  the report because its tests require `ENQIU_TEST_REDIS_URL`; those seven tests
+  did not run for this release.
+- Resolved Airbnb style-guide violations in `src`: `no-plusplus`,
+  `no-underscore-dangle`, `no-nested-ternary`, and an unused import.
+
 ## [0.1.3] - 2026-08-03
 
 ### Added

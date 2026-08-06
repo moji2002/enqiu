@@ -1,6 +1,7 @@
 # Enqiu
 
-[![npm](https://img.shields.io/npm/v/enqiu?style=flat-square)](https://www.npmjs.com/package/enqiu)
+[![npm](https://img.shields.io/npm/v/enqiu/alpha?style=flat-square&label=alpha)](https://www.npmjs.com/package/enqiu)
+[![status](https://img.shields.io/badge/status-alpha-d97706?style=flat-square)](#status-alpha)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-1f6f43?style=flat-square)](https://nodejs.org/)
 [![runtime dependencies](https://img.shields.io/badge/runtime_deps-0-f05a28?style=flat-square)](package.json)
 [![license](https://img.shields.io/npm/l/enqiu?style=flat-square)](LICENSE)
@@ -14,11 +15,28 @@ your job API.
 [Project notes](https://worksonmy.dev/projects/enqiu) ·
 [Issues](https://github.com/moji2002/enqiu/issues)
 
+## Status: alpha
+
+> [!WARNING]
+> **Enqiu is alpha software. Do not run it in production.**
+>
+> The API is still changing and will break between releases without a
+> deprecation period. Durability, failure handling, and the Redis driver have
+> not been validated under sustained real-world load. There is no security
+> review and no support commitment.
+>
+> It is published under the `alpha` dist-tag, so a plain `npm install enqiu`
+> will not install it. You have to ask for it by name.
+
 ```bash
-npm install enqiu
-# or: pnpm add enqiu
-# or: bun add enqiu
+npm install enqiu@alpha
+# or: pnpm add enqiu@alpha
+# or: bun add enqiu@alpha
 ```
+
+Use it for prototypes, local tooling, and evaluation. If you depend on it, pin
+the exact version — `^` and `~` ranges do not behave the way you expect across
+prerelease versions.
 
 Enqiu has no runtime dependencies. Redis, schema, Hono, and telemetry packages
 remain your choice.

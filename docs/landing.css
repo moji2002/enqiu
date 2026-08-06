@@ -19,6 +19,10 @@
   --syn-fn: #f0c479;
   --syn-comment: #737e91;
 
+  --warn-ink: #8a5a00;
+  --warn-rule: #e5c07b;
+  --warn-bg: #fdf6e3;
+
   --display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
   --mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --measure: 42rem;
@@ -35,7 +39,37 @@
     --accent: #7aa2f7;
     --slab: #080a0e;
     --slab-fg: #d3dae5;
+
+    --warn-ink: #f5c76a;
+    --warn-rule: #4a3a17;
+    --warn-bg: #1d1808;
   }
+}
+
+/* Sits above the h1 deliberately: the status is the first thing a visitor
+   needs, not a footnote under the pitch. */
+.alpha {
+  margin: 0 0 1.25rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--warn-rule);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.alpha strong {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.alpha code {
+  font-family: var(--mono);
+  font-size: 0.9em;
 }
 
 *,
