@@ -444,6 +444,22 @@ export class MemoryQueue<Jobs extends JobMap> {
   private readonly historyLimit: number;
   private readonly logLimit: number;
   private readonly starts: number[] = [];
+  /**
+   * Live count per status. `size` and `stats` sit on the hot path — they run
+   * on every add, finish and pump — so they must not scan `records`, which
+   * also holds up to `historyLimit` finished jobs.
+   */
+  private readonly statusCounts: Record<JobStatus, number> = {
+    queued: 0,
+    scheduled: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+    expired: 0,
+  };
+  /** Waiting jobs that carry a deadline, the only ones expiry has to visit. */
+  private readonly expiringJobs = new Set<InternalJob>();
   private readonly idleWaiters = new Set<() => void>();
   private readonly sizeWaiters = new Set<{
     limit: number;
@@ -499,13 +515,7 @@ export class MemoryQueue<Jobs extends JobMap> {
 
   /** Jobs waiting to start, including scheduled jobs. */
   get size(): number {
-    let count = 0;
-    for (const job of this.records.values()) {
-      if (job.status === "queued" || job.status === "scheduled") {
-        count += 1;
-      }
-    }
-    return count;
+    return this.statusCounts.queued + this.statusCounts.scheduled;
   }
 
   /** Jobs currently running. */
@@ -533,21 +543,7 @@ export class MemoryQueue<Jobs extends JobMap> {
   }
 
   get stats(): QueueStats {
-    const value: QueueStats = {
-      queued: 0,
-      scheduled: 0,
-      running: 0,
-      succeeded: 0,
-      failed: 0,
-      cancelled: 0,
-      expired: 0,
-      total: 0,
-    };
-    for (const job of this.records.values()) {
-      value[job.status] += 1;
-      value.total += 1;
-    }
-    return value;
+    return { ...this.statusCounts, total: this.records.size };
   }
 
   add<Name extends JobName<Jobs>>(
@@ -673,7 +669,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       abortListener: undefined,
     };
 
-    this.records.set(id, job);
+    this.track(job);
     this.idleNotified = false;
     if (key) {
       this.keys.set(key, job);
@@ -709,7 +705,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     this.disconnectSignal(job);
 
     job.input = input;
-    job.status = "scheduled";
+    this.setStatus(job, "scheduled");
     job.priority = options.priority ?? job.priority;
     job.retry =
       options.retry === undefined
@@ -727,6 +723,8 @@ export class MemoryQueue<Jobs extends JobMap> {
     job.sequence = this.sequence++;
     job.externalSignal = options.signal;
     state.until = now + (options.debounce?.wait ?? 0);
+    // expiresAt was reassigned above, so re-evaluate the expiry index.
+    this.syncExpiring(job);
     this.delayed.push(job);
     this.connectSignal(job);
     this.emit("added", snapshot(job));
@@ -763,7 +761,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     }
 
     const error = new JobCancelledError(id, reason);
-    job.status = "cancelled";
+    this.setStatus(job, "cancelled");
     job.finishedAt = Date.now();
     job.error = serializeError(error);
     job.errorCause = error;
@@ -799,7 +797,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       return undefined;
     }
 
-    job.status = "queued";
+    this.setStatus(job, "queued");
     job.attempt = 0;
     job.runAt = Date.now();
     job.expiresAt = undefined;
@@ -817,6 +815,8 @@ export class MemoryQueue<Jobs extends JobMap> {
     if (job.key) {
       this.keys.set(job.key, job);
     }
+    // The retried job cleared its deadline, so drop it from the expiry index.
+    this.syncExpiring(job);
     this.ready.push(job);
     this.connectSignal(job);
     this.notifySizeWaiters();
@@ -882,7 +882,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       ) {
         continue;
       }
-      this.records.delete(id);
+      this.untrack(job);
       removed.push(id);
     }
     return removed;
@@ -949,6 +949,38 @@ export class MemoryQueue<Jobs extends JobMap> {
       result.error?.message ?? `Job "${job.id}" failed`,
       job.errorCause ? { cause: job.errorCause } : undefined
     );
+  }
+
+  /** The single place a job's status changes, so the counters stay exact. */
+  private setStatus(job: InternalJob, status: JobStatus): void {
+    if (job.status !== status) {
+      this.statusCounts[job.status] -= 1;
+      this.statusCounts[status] += 1;
+      job.status = status;
+    }
+    this.syncExpiring(job);
+  }
+
+  private track(job: InternalJob): void {
+    this.records.set(job.id, job);
+    this.statusCounts[job.status] += 1;
+    this.syncExpiring(job);
+  }
+
+  private untrack(job: InternalJob): void {
+    this.records.delete(job.id);
+    this.statusCounts[job.status] -= 1;
+    this.expiringJobs.delete(job);
+  }
+
+  /** Only a waiting job with a deadline can expire, so only those are indexed. */
+  private syncExpiring(job: InternalJob): void {
+    const waiting = job.status === "queued" || job.status === "scheduled";
+    if (waiting && job.expiresAt !== undefined) {
+      this.expiringJobs.add(job);
+    } else {
+      this.expiringJobs.delete(job);
+    }
   }
 
   private handle<
@@ -1042,24 +1074,22 @@ export class MemoryQueue<Jobs extends JobMap> {
       }
       this.delayed.pop();
       if (job.status === "scheduled") {
-        job.status = "queued";
+        this.setStatus(job, "queued");
         this.ready.push(job);
       }
     }
   }
 
   private expireWaiting(now: number): void {
-    for (const job of this.records.values()) {
-      if (
-        (job.status === "queued" || job.status === "scheduled") &&
-        job.expiresAt !== undefined &&
-        job.expiresAt <= now
-      ) {
+    // setStatus removes the job from expiringJobs as it expires. Deleting the
+    // current entry mid-iteration is well defined for a Set.
+    for (const job of this.expiringJobs) {
+      if ((job.expiresAt as number) <= now) {
         const error = new JobExpiredError(job.id);
-        job.status = "expired";
         job.finishedAt = now;
         job.error = serializeError(error);
         job.errorCause = error;
+        this.setStatus(job, "expired");
         this.finish(job, "expired");
       }
     }
@@ -1213,16 +1243,9 @@ export class MemoryQueue<Jobs extends JobMap> {
           ? this.policyWakeAt
           : Math.min(wakeAt, this.policyWakeAt);
     }
-    for (const job of this.records.values()) {
-      if (
-        (job.status === "queued" || job.status === "scheduled") &&
-        job.expiresAt !== undefined
-      ) {
-        wakeAt =
-          wakeAt === undefined
-            ? job.expiresAt
-            : Math.min(wakeAt, job.expiresAt);
-      }
+    for (const job of this.expiringJobs) {
+      const expiresAt = job.expiresAt as number;
+      wakeAt = wakeAt === undefined ? expiresAt : Math.min(wakeAt, expiresAt);
     }
     if (wakeAt === undefined || this.runningCount >= this._concurrency) {
       return;
@@ -1241,7 +1264,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       return;
     }
 
-    job.status = "running";
+    this.setStatus(job, "running");
     job.attempt += 1;
     job.startedAt = Date.now();
     job.controller = new AbortController();
@@ -1292,7 +1315,7 @@ export class MemoryQueue<Jobs extends JobMap> {
             ]);
 
       if (!isCancelled(job)) {
-        job.status = "succeeded";
+        this.setStatus(job, "succeeded");
         job.output = output;
         job.error = undefined;
         job.errorCause = undefined;
@@ -1307,7 +1330,7 @@ export class MemoryQueue<Jobs extends JobMap> {
           const policyError = toError(policyCause);
           job.error = serializeError(policyError);
           job.errorCause = policyError;
-          job.status = "failed";
+          this.setStatus(job, "failed");
           job.finishedAt = Date.now();
           this.finish(job, "failed");
         }
@@ -1333,7 +1356,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       (job.retry.when ? await job.retry.when(error, job.attempt) : true);
 
     if (!shouldRetry) {
-      job.status = "failed";
+      this.setStatus(job, "failed");
       job.finishedAt = Date.now();
       this.finish(job, "failed");
       return;
@@ -1342,7 +1365,7 @@ export class MemoryQueue<Jobs extends JobMap> {
     const delay = await backoffDelay(job.retry.backoff, job.attempt, error);
     job.runAt = Date.now() + delay;
     job.sequence = this.sequence++;
-    job.status = delay > 0 ? "scheduled" : "queued";
+    this.setStatus(job, delay > 0 ? "scheduled" : "queued");
     if (job.status === "scheduled") {
       this.delayed.push(job);
     } else {
@@ -1371,17 +1394,11 @@ export class MemoryQueue<Jobs extends JobMap> {
   }
 
   private pruneHistory(): void {
-    let finished = 0;
-    for (const job of this.records.values()) {
-      if (isTerminal(job.status)) {
-        finished += 1;
-      }
-    }
-    let remove = finished - this.historyLimit;
+    let remove = this.finishedCount() - this.historyLimit;
     if (remove <= 0) {
       return;
     }
-    for (const [id, job] of this.records) {
+    for (const job of this.records.values()) {
       if (remove <= 0) {
         return;
       }
@@ -1389,10 +1406,19 @@ export class MemoryQueue<Jobs extends JobMap> {
         if (job.key && this.keys.get(job.key) === job) {
           this.keys.delete(job.key);
         }
-        this.records.delete(id);
+        this.untrack(job);
         remove -= 1;
       }
     }
+  }
+
+  private finishedCount(): number {
+    return (
+      this.statusCounts.succeeded +
+      this.statusCounts.failed +
+      this.statusCounts.cancelled +
+      this.statusCounts.expired
+    );
   }
 
   private prunePolicyState(now: number): void {
