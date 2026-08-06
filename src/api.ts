@@ -332,6 +332,19 @@ class PublicJobHandle<Output, Input, Name extends string>
   }
 }
 
+/**
+ * The slice of the Redis client the cancellation marker needs.
+ *
+ * Narrow on purpose: reaching into BullMQ's backend is a private detail, and
+ * naming exactly four commands keeps that coupling visible and small.
+ */
+interface MarkerStore {
+  hset(key: string, field: string, value: string): Promise<unknown>;
+  hget(key: string, field: string): Promise<string | null>;
+  hgetall(key: string): Promise<Record<string, string>>;
+  hdel(key: string, ...fields: string[]): Promise<unknown>;
+}
+
 /** The parts of the facade a handle needs, without its generic parameter. */
 interface Facade {
   awaitResult(bull: BullJob): Promise<unknown>;
@@ -349,6 +362,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
   private readonly cancelled = new Set<string>();
   private worker: Worker | undefined;
   private events: QueueEvents | undefined;
+  private eventsReady: Promise<void> | undefined;
   private workerRunning = false;
   private closed = false;
 
@@ -378,7 +392,11 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     if (workerOptions) {
       this.worker = new Worker(
         this.queueName,
-        async (bull: BullJob) => this.process(bull),
+        // Three parameters on purpose: BullMQ decides whether to create an
+        // AbortController by reading `processor.length >= 3`. Declaring fewer
+        // means worker.cancelJob() can never abort anything.
+        async (bull: BullJob, _token?: string, signal?: AbortSignal) =>
+          this.process(bull, signal),
         {
           ...this.bullBase(),
           ...(workerOptions.concurrency === undefined
@@ -412,7 +430,10 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
   }
 
   /** Runs one job: expiry, deadline, and the handler's context. */
-  private async process(bull: BullJob): Promise<unknown> {
+  private async process(
+    bull: BullJob,
+    external?: AbortSignal
+  ): Promise<unknown> {
     const definition = this.definitions.get(bull.name);
     if (!definition) {
       throw new UnrecoverableError(
@@ -427,7 +448,20 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       throw new UnrecoverableError(new JobExpiredError(String(bull.id)).message);
     }
 
+    // One signal for the handler, whichever reason fires first: this queue's
+    // own timeout, or a cancellation delivered through BullMQ.
     const controller = new AbortController();
+    if (external) {
+      if (external.aborted) {
+        controller.abort(external.reason);
+      } else {
+        external.addEventListener(
+          "abort",
+          () => controller.abort(external.reason),
+          { once: true }
+        );
+      }
+    }
     const context = createContext(
       bull,
       controller.signal,
@@ -466,7 +500,13 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
 
   /** Lazily opened: only awaited results and subscriptions need the stream. */
   private queueEvents(): QueueEvents {
-    this.events ??= new QueueEvents(this.queueName, this.bullBase());
+    if (!this.events) {
+      this.events = new QueueEvents(this.queueName, this.bullBase());
+      // Its connection opens asynchronously. A caller that subscribes and
+      // immediately submits would otherwise miss the first events, so
+      // submissions wait for the stream to be live once anyone is listening.
+      this.eventsReady = this.events.waitUntilReady();
+    }
     return this.events;
   }
 
@@ -475,7 +515,9 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     try {
       return await bull.waitUntilFinished(this.queueEvents());
     } catch (cause) {
-      if (this.cancelled.has(id)) throw new JobCancelledError(id);
+      if (this.cancelled.has(id) || (await this.readCancelled(id))) {
+        throw new JobCancelledError(id);
+      }
       const error = toError(cause);
       if (error.message.includes("timed out after")) throw error;
       if (error.message.includes("expired before it could start")) {
@@ -485,42 +527,99 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
     }
   }
 
+  /**
+   * Where cancellations are recorded.
+   *
+   * Cancelling removes the job, so without a marker the only evidence is gone
+   * and `refresh()` cannot tell "cancelled" from "never existed". Keeping that
+   * in a process-local Set made the answer depend on which process asked, and
+   * lose it entirely on restart.
+   */
+  private async markers(): Promise<MarkerStore> {
+    return (await this.queue.getBackend().client) as unknown as MarkerStore;
+  }
+
+  private cancelledKey(): string {
+    return `${this.options.prefix ?? "bull"}:${this.queueName}:enqiu:cancelled`;
+  }
+
   async cancelJob(bull: BullJob, reason: string): Promise<boolean> {
     const id = String(bull.id);
     const state = await bull.getState();
     if (state === "completed" || state === "failed" || state === "unknown") {
       return false;
     }
-    this.cancelled.add(id);
+
+    if (state === "active") {
+      // A running job cannot be removed, but this process's worker can abort
+      // it if it is the one holding it. Another worker's job is not ours to
+      // cancel, and BullMQ offers no cross-process signal for that.
+      if (!this.worker?.cancelJob(id, reason)) return false;
+      await this.markCancelled(id, reason);
+      this.emitCancelled(id, reason);
+      return true;
+    }
+
     try {
       await bull.remove();
     } catch {
-      // BullMQ refuses to remove a job that is already running.
-      this.cancelled.delete(id);
       return false;
     }
+    await this.markCancelled(id, reason);
+    this.emitCancelled(id, reason);
+    return true;
+  }
+
+  private async markCancelled(id: string, reason: string): Promise<void> {
+    this.cancelled.add(id);
+    const client = await this.markers();
+    await client.hset(
+      this.cancelledKey(),
+      id,
+      JSON.stringify({ reason, at: Date.now() })
+    );
+  }
+
+  private async readCancelled(
+    id: string
+  ): Promise<{ reason: string; at: number } | undefined> {
+    const client = await this.markers();
+    const raw = await client.hget(this.cancelledKey(), id);
+    return raw ? (JSON.parse(raw) as { reason: string; at: number }) : undefined;
+  }
+
+  private emitCancelled(id: string, reason: string): void {
     this.options.telemetry?.emit({
       type: "job.cancelled",
       queue: this.queueName,
       timestamp: Date.now(),
       fields: { jobId: id, reason },
     });
-    return true;
   }
 
   async snapshotOf(id: string): Promise<JobSnapshot | undefined> {
     const bull = await this.queue.getJob(id);
-    if (bull) return toSnapshot(bull, toStatus(await bull.getState()));
-    if (!this.cancelled.has(id)) return undefined;
-    // A cancelled job is removed from Redis, so its final state lives here.
+    if (bull) {
+      const state = await bull.getState();
+      // An aborted job settles as failed; the marker is what distinguishes a
+      // deliberate cancellation from one that simply threw.
+      if (state === "failed" && (await this.readCancelled(id))) {
+        return toSnapshot(bull, "cancelled");
+      }
+      return toSnapshot(bull, toStatus(state));
+    }
+    const cancelled = await this.readCancelled(id);
+    if (!cancelled) return undefined;
+    // The job itself is gone, so its final state lives in the marker.
     return {
       id,
       name: "unknown",
       input: undefined,
       status: "cancelled",
       attempt: 0,
-      createdAt: Date.now(),
-      finishedAt: Date.now(),
+      createdAt: cancelled.at,
+      finishedAt: cancelled.at,
+      error: { name: "JobCancelledError", message: cancelled.reason },
     };
   }
 
@@ -535,6 +634,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       options: SubmitOptions = {}
     ): Promise<JobHandle> => {
       this.assertOpen();
+      if (this.eventsReady) await this.eventsReady;
       const value = assertJobValue(
         await validateInput(name, definition.schema, input)
       );
@@ -569,6 +669,7 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
       if (options.ids && options.ids.length !== inputs.length) {
         throw new RangeError("bulk ids must match the number of inputs");
       }
+      if (this.eventsReady) await this.eventsReady;
       const values = await Promise.all(
         inputs.map(async (input) =>
           assertJobValue(await validateInput(name, definition.schema, input))
@@ -743,11 +844,26 @@ class EnqiuFacade<Definitions extends JobDefinitions> implements Facade {
         if (!Number.isFinite(olderThan) || olderThan < 0) {
           throw new RangeError("olderThan must be a non-negative finite number");
         }
-        return this.queue.clean(
+        const removed = await this.queue.clean(
           olderThan,
           query.limit ?? 1000,
           query.status === "failed" ? "failed" : "completed"
         );
+        // Markers outlive their jobs otherwise, so the hash grows forever.
+        const client = await this.markers();
+        const markers = await client.hgetall(this.cancelledKey());
+        const threshold = Date.now() - olderThan;
+        const stale = Object.entries(markers)
+          .filter(([, raw]) => {
+            try {
+              return (JSON.parse(raw) as { at: number }).at <= threshold;
+            } catch {
+              return true;
+            }
+          })
+          .map(([id]) => id);
+        if (stale.length > 0) await client.hdel(this.cancelledKey(), ...stale);
+        return removed;
       },
 
       on: <Event extends keyof QueueEventMap>(

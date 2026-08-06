@@ -20,6 +20,17 @@ import {
 const redisUrl = process.env.ENQIU_TEST_REDIS_URL;
 const describeRedis = redisUrl ? describe : describe.skip;
 
+async function waitFor(
+  predicate: () => boolean | Promise<boolean>,
+  timeout = 5_000
+): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!(await predicate())) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for state");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function connectionFrom(url: string): { host: string; port: number } {
   const parsed = new URL(url);
   return { host: parsed.hostname, port: Number(parsed.port || 6379) };
@@ -384,6 +395,139 @@ describeRedis("enqiu over BullMQ", () => {
       expect(snapshot.nextRunAt).toBeGreaterThan(Date.now());
       await schedule.remove();
       await expect(schedule.refresh()).rejects.toThrow("does not exist");
+    });
+  });
+
+  describe("event subscription", () => {
+    it("delivers lifecycle events to subscribers", async () => {
+      const jobs = make({ work: async (n: number) => n });
+      const seen: string[] = [];
+      const off = jobs.queue.on("succeeded", (s) => seen.push(`succeeded:${s.id}`));
+      jobs.queue.on("added", (s) => seen.push(`added:${s.id}`));
+      jobs.queue.on("started", (s) => seen.push(`started:${s.id}`));
+
+      // The first job warms the stream. BullMQ's QueueEvents begins reading
+      // from the present, so a job added in the same breath as the very first
+      // subscription can legitimately beat the reader to it.
+      const warm = await jobs.work(1);
+      await warm.result;
+      await waitFor(() => seen.some((e) => e.startsWith("succeeded:")));
+
+      const handle = await jobs.work(2);
+      await handle.result;
+      await waitFor(() => seen.includes(`succeeded:${handle.id}`));
+
+      expect(seen).toContain(`added:${handle.id}`);
+      expect(seen).toContain(`started:${handle.id}`);
+      expect(seen).toContain(`succeeded:${handle.id}`);
+
+      off();
+      const afterUnsubscribe = seen.filter((e) => e.startsWith("succeeded:")).length;
+      const last = await jobs.work(3);
+      await last.result;
+      await new Promise((r) => setTimeout(r, 200));
+      expect(
+        seen.filter((e) => e.startsWith("succeeded:")).length
+      ).toBe(afterUnsubscribe);
+    });
+
+    it("reports a failure to subscribers", async () => {
+      const jobs = make({
+        doomed: job({
+          input: z.object({}),
+          run: async () => {
+            throw new Error("nope");
+          },
+        }),
+      });
+      const failures: string[] = [];
+      jobs.queue.on("failed", (snapshot) => failures.push(snapshot.id));
+      const handle = await jobs.doomed({});
+      await handle.result.catch(() => undefined);
+      await waitFor(() => failures.length === 1);
+      expect(failures[0]).toBe(handle.id);
+    });
+  });
+
+  describe("cancellation", () => {
+    it("aborts a job that is already running", async () => {
+      let aborted = false;
+      const jobs = make({
+        slow: job({
+          input: z.object({}),
+          run: async (_input, context) =>
+            new Promise((resolve, reject) => {
+              const timer = setTimeout(resolve, 5_000);
+              context.signal.addEventListener("abort", () => {
+                aborted = true;
+                clearTimeout(timer);
+                reject(new Error("aborted"));
+              });
+            }),
+        }),
+      });
+
+      const handle = await jobs.slow({});
+      await waitFor(async () => (await handle.refresh()).status === "running");
+      expect(await handle.cancel("operator stopped it")).toBe(true);
+      await waitFor(() => aborted);
+      expect(aborted).toBe(true);
+    });
+
+    it("records a cancellation durably, so another process sees it", async () => {
+      const name = `shared-${randomUUID()}`;
+      const producer = make({ work: async (n: number) => n }, {
+        name,
+        worker: false,
+      });
+      const observer = make({ work: async (n: number) => n }, {
+        name,
+        worker: false,
+      });
+
+      const handle = await producer.work(1);
+      expect(await handle.cancel("not needed")).toBe(true);
+
+      // A different instance, with no in-process memory of the cancellation.
+      const seen = await observer.queue.get(handle.id);
+      expect(seen?.status).toBe("cancelled");
+      expect(seen?.error?.message).toBe("not needed");
+    });
+  });
+
+  describe("multiple workers", () => {
+    it("shares one queue without running a job twice", async () => {
+      const name = `pool-${randomUUID()}`;
+      const byWorker = new Map<string, number>();
+      const processed: number[] = [];
+
+      const spawn = (label: string) =>
+        make(
+          {
+            work: job({
+              input: z.object({ n: z.number() }),
+              run: async ({ n }) => {
+                byWorker.set(label, (byWorker.get(label) ?? 0) + 1);
+                processed.push(n);
+                await new Promise((r) => setTimeout(r, 5));
+                return n;
+              },
+            }),
+          },
+          { name, worker: { concurrency: 2 } }
+        );
+
+      const a = spawn("a");
+      const b = spawn("b");
+
+      await a.work.bulk(Array.from({ length: 20 }, (_, i) => ({ n: i })));
+      await a.worker.onIdle();
+      await b.worker.onIdle();
+
+      expect(processed).toHaveLength(20);
+      expect(new Set(processed).size).toBe(20);
+      expect(byWorker.size).toBe(2);
+      expect((await a.queue.stats()).succeeded).toBe(20);
     });
   });
 });

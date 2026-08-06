@@ -13,7 +13,7 @@ export default defineConfig({
       // Without ENQIU_TEST_REDIS_URL only the codec runs, and gating on that
       // figure would be gating on a number the run never verified.
       thresholds: process.env.ENQIU_TEST_REDIS_URL
-        ? { statements: 75, branches: 70, functions: 75, lines: 75 }
+        ? { statements: 90, branches: 75, functions: 80, lines: 90 }
         : { statements: 0, branches: 0, functions: 0, lines: 0 },
     },
   },

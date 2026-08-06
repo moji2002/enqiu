@@ -26,9 +26,10 @@ experience.
 > exact version: it is published under the `beta` dist-tag, so a plain
 > `npm install enqiu` will not install it.
 >
-> Known gaps: `queue.on()` is untested, cancelling a *running* job is not
-> supported, and a cancelled job's status is tracked in-process — after a
-> restart it reads as missing rather than cancelled.
+> One caveat worth knowing: `queue.on("added")` can miss a job submitted in the
+> same breath as the very first subscription, because BullMQ's event stream
+> begins reading from the present. Later events, and everything after the
+> stream is live, are delivered normally.
 
 ```bash
 npm install enqiu@beta bullmq ioredis
