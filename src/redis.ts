@@ -7,7 +7,6 @@ import {
 } from "./memory.js";
 import type {
   AddOptions,
-  BackoffOptions,
   JobContext,
   JobInput,
   JobLogEntry,
@@ -21,8 +20,26 @@ import type {
   QueueOptions,
   QueueStats,
   RateLimitOptions,
-  SerializedError,
 } from "./memory.js";
+import {
+  errorFromSerialized,
+  serializeError,
+  toError,
+  type SerializedError,
+} from "./internal/errors.js";
+import {
+  backoffFromOptions,
+  resolveRunAt,
+  sleep,
+  type BackoffOptions,
+} from "./internal/timing.js";
+import {
+  nonNegativeInteger,
+  nonNegativeNumber,
+  positiveInteger,
+  positiveIntegerOrInfinity,
+  positiveNumber,
+} from "./internal/validate.js";
 import {
   decodeJobValue as decode,
   encodeJobValue as encode,
@@ -946,9 +963,9 @@ export function redis(
   const visibilityTimeout = options.visibilityTimeout ?? 30_000;
   const retention = options.retention ?? 7 * 24 * 60 * 60 * 1000;
 
-  positive("pollInterval", pollInterval);
-  positive("visibilityTimeout", visibilityTimeout);
-  positive("retention", retention);
+  positiveNumber("pollInterval", pollInterval);
+  positiveNumber("visibilityTimeout", visibilityTimeout);
+  positiveNumber("retention", retention);
 
   return {
     kind: "redis",
@@ -1007,10 +1024,12 @@ export class RedisQueue<Jobs extends JobMap> {
 
     positiveIntegerOrInfinity("concurrency", this.concurrency);
     nonNegativeInteger("logLimit", this.logLimit);
-    optionalPositive("timeout", this.timeout);
+    if (this.timeout !== undefined) {
+      positiveNumber("timeout", this.timeout);
+    }
     if (this.rateLimit) {
       positiveInteger("rateLimit.limit", this.rateLimit.limit);
-      positive("rateLimit.interval", this.rateLimit.interval);
+      positiveNumber("rateLimit.interval", this.rateLimit.interval);
     }
     if (this.started && this.workerEnabled) {
       this.ensureWorker();
@@ -1028,7 +1047,7 @@ export class RedisQueue<Jobs extends JobMap> {
     }
 
     const now = Date.now();
-    const requestedRunAt = runAt(options.delay, now);
+    const requestedRunAt = resolveRunAt(options.delay, now);
     const resolvedRunAt =
       options.debounce?.mode === "trailing"
         ? Math.max(requestedRunAt, now + options.debounce.wait)
@@ -1072,13 +1091,13 @@ export class RedisQueue<Jobs extends JobMap> {
     if (!Number.isFinite(record.priority)) {
       throw new RangeError("priority must be a finite number");
     }
-    optionalPositive("timeout", record.timeout);
-    optionalPositive("expiresIn", options.expiresIn);
-    if (record.keyRetention < 0 || !Number.isFinite(record.keyRetention)) {
-      throw new RangeError(
-        "keyRetention must be a non-negative finite number"
-      );
+    if (record.timeout !== undefined) {
+      positiveNumber("timeout", record.timeout);
     }
+    if (options.expiresIn !== undefined) {
+      positiveNumber("expiresIn", options.expiresIn);
+    }
+    nonNegativeNumber("keyRetention", record.keyRetention);
 
     record.submission = this.enqueue(record, options.key).catch((cause) => {
       const error = toError(cause);
@@ -1193,9 +1212,7 @@ export class RedisQueue<Jobs extends JobMap> {
   } = {}): Promise<string[]> {
     const olderThan = options.olderThan ?? 0;
     const limit = options.limit ?? 1000;
-    if (!Number.isFinite(olderThan) || olderThan < 0) {
-      throw new RangeError("cleanup.olderThan must be non-negative");
-    }
+    nonNegativeNumber("cleanup.olderThan", olderThan);
     if (!Number.isInteger(limit) || limit < 0 || limit > 10_000) {
       throw new RangeError(
         "cleanup.limit must be an integer between 0 and 10000"
@@ -1921,7 +1938,7 @@ export class RedisQueue<Jobs extends JobMap> {
       const retry =
         claimed.attempt <= claimed.retry.retries;
       const delay = retry
-        ? await retryDelay(claimed.retry.backoff, claimed.attempt)
+        ? retryDelay(claimed.retry.backoff, claimed.attempt)
         : 0;
       const failed = await this.fail(claimed, error, retry, delay);
       if (failed) {
@@ -2377,22 +2394,18 @@ function normalizeRetry(
   return { retries: retry.retries, backoff: retry.backoff };
 }
 
-async function retryDelay(
+function retryDelay(
   backoff: NormalizedRedisRetry["backoff"],
   attempt: number
-): Promise<number> {
+): number {
   if (backoff === undefined) {
     return 0;
   }
   if (typeof backoff === "number") {
+    nonNegativeNumber("backoff delay", backoff);
     return backoff;
   }
-  const base =
-    backoff.type === "exponential"
-      ? backoff.delay * 2 ** Math.max(0, attempt - 1)
-      : backoff.delay;
-  const jitter = Math.min(1, Math.max(0, backoff.jitter ?? 0));
-  return Math.max(0, base * (1 - Math.random() * jitter));
+  return backoffFromOptions(backoff, attempt);
 }
 
 function snapshotFromFields(values: unknown[]): JobSnapshot {
@@ -2445,26 +2458,6 @@ function applySnapshot(
   record.logs = [...(value.logs ?? [])];
 }
 
-function runAt(
-  delay: RedisAddOptions["delay"],
-  now: number
-): number {
-  if (delay instanceof Date) {
-    const value = delay.getTime();
-    if (!Number.isFinite(value)) {
-      throw new RangeError("delay date must be valid");
-    }
-    return Math.max(now, value);
-  }
-  if (delay === undefined) {
-    return now;
-  }
-  if (!Number.isFinite(delay) || delay < 0) {
-    throw new RangeError("delay must be a non-negative finite number");
-  }
-  return now + delay;
-}
-
 function createId(
   queue: string,
   name: string,
@@ -2480,18 +2473,6 @@ function randomToken(): string {
     return uuid;
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-function serializeError(error: Error): SerializedError {
-  return {
-    name: error.name,
-    message: error.message,
-    stack: error.stack,
-  };
-}
-
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
 }
 
 function optionalNumber(value: string): number | undefined {
@@ -2585,45 +2566,3 @@ function snapshotForEvent(
   return snapshot;
 }
 
-function errorFromSerialized(value: SerializedError | undefined): Error {
-  const error = new Error(value?.message ?? "Job attempt failed");
-  error.name = value?.name ?? "Error";
-  if (value?.stack) {
-    error.stack = value.stack;
-  }
-  return error;
-}
-
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function positive(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive finite number`);
-  }
-}
-
-function optionalPositive(name: string, value: number | undefined): void {
-  if (value !== undefined) {
-    positive(name, value);
-  }
-}
-
-function positiveInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new RangeError(`${name} must be a positive integer`);
-  }
-}
-
-function positiveIntegerOrInfinity(name: string, value: number): void {
-  if (value !== Number.POSITIVE_INFINITY) {
-    positiveInteger(name, value);
-  }
-}
-
-function nonNegativeInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new RangeError(`${name} must be a non-negative integer`);
-  }
-}

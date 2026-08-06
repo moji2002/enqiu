@@ -1,3 +1,21 @@
+import { serializeError, toError } from "./internal/errors.js";
+import { backoffFromOptions, resolveRunAt } from "./internal/timing.js";
+import {
+  nonEmptyString,
+  nonNegativeInteger,
+  nonNegativeIntegerOrInfinity,
+  nonNegativeNumber,
+  positiveInteger,
+  positiveIntegerOrInfinity,
+  positiveNumber,
+} from "./internal/validate.js";
+
+export type { BackoffOptions } from "./internal/timing.js";
+export type { SerializedError } from "./internal/errors.js";
+
+import type { BackoffOptions } from "./internal/timing.js";
+import type { SerializedError } from "./internal/errors.js";
+
 export type MaybePromise<T> = T | PromiseLike<T>;
 
 export type JobStatus =
@@ -49,16 +67,6 @@ export type JobOutput<
   Jobs extends JobMap,
   Name extends JobName<Jobs>,
 > = Awaited<ReturnType<Jobs[Name]>>;
-
-export interface BackoffOptions {
-  type?: "fixed" | "exponential";
-  delay: number;
-  /**
-   * Randomize each delay by up to this fraction.
-   * `1` is full jitter; `0.2` produces a value between 80–100%.
-   */
-  jitter?: number;
-}
 
 export type BackoffStrategy =
   | number
@@ -145,12 +153,6 @@ export interface AddOptions {
   keyRetention?: number;
   /** Cancels the job when aborted. */
   signal?: AbortSignal;
-}
-
-export interface SerializedError {
-  name: string;
-  message: string;
-  stack?: string | undefined;
 }
 
 export interface JobSnapshot<
@@ -473,13 +475,15 @@ export class MemoryQueue<Jobs extends JobMap> {
     this.started = options.autoStart ?? true;
     this.handlers = handlers;
 
-    validatePositiveIntegerOrInfinity("concurrency", this._concurrency);
-    validateTimeout(this.defaultTimeout);
-    validateNonNegativeInteger("historyLimit", this.historyLimit);
-    validateNonNegativeInteger("logLimit", this.logLimit);
+    positiveIntegerOrInfinity("concurrency", this._concurrency);
+    if (this.defaultTimeout !== undefined) {
+      positiveNumber("timeout", this.defaultTimeout);
+    }
+    nonNegativeInteger("historyLimit", this.historyLimit);
+    nonNegativeInteger("logLimit", this.logLimit);
     if (this.rateLimit) {
-      validatePositiveInteger("rateLimit.limit", this.rateLimit.limit);
-      validatePositiveNumber("rateLimit.interval", this.rateLimit.interval);
+      positiveInteger("rateLimit.limit", this.rateLimit.limit);
+      positiveNumber("rateLimit.interval", this.rateLimit.interval);
     }
   }
 
@@ -488,7 +492,7 @@ export class MemoryQueue<Jobs extends JobMap> {
   }
 
   set concurrency(value: number) {
-    validatePositiveIntegerOrInfinity("concurrency", value);
+    positiveIntegerOrInfinity("concurrency", value);
     this._concurrency = value;
     this.requestPump();
   }
@@ -613,7 +617,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       throw new Error(`Job ID "${id}" already exists`);
     }
 
-    const requestedRunAt = normalizeRunAt(options.delay, now);
+    const requestedRunAt = resolveRunAt(options.delay, now);
     const runAt =
       options.debounce?.mode === "trailing"
         ? Math.max(requestedRunAt, now + options.debounce.wait)
@@ -630,9 +634,11 @@ export class MemoryQueue<Jobs extends JobMap> {
     if (!Number.isFinite(priority)) {
       throw new RangeError("priority must be a finite number");
     }
-    validateTimeout(timeout);
+    if (timeout !== undefined) {
+      positiveNumber("timeout", timeout);
+    }
     if (options.expiresIn !== undefined) {
-      validatePositiveNumber("expiresIn", options.expiresIn);
+      positiveNumber("expiresIn", options.expiresIn);
     }
 
     const job: InternalJob = {
@@ -711,7 +717,7 @@ export class MemoryQueue<Jobs extends JobMap> {
         : normalizeRetry(options.retry);
     job.timeout = options.timeout ?? job.timeout;
     job.runAt = Math.max(
-      normalizeRunAt(options.delay, now),
+      resolveRunAt(options.delay, now),
       now + (options.debounce?.wait ?? 0)
     );
     job.expiresAt =
@@ -840,9 +846,7 @@ export class MemoryQueue<Jobs extends JobMap> {
   }
 
   async onSizeLessThan(limit: number): Promise<void> {
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new RangeError("limit must be a positive integer");
-    }
+    positiveInteger("limit", limit);
     if (this.size < limit) {
       return;
     }
@@ -862,15 +866,8 @@ export class MemoryQueue<Jobs extends JobMap> {
               ? [options.status]
               : options.status,
           );
-    if (!Number.isFinite(olderThan) || olderThan < 0) {
-      throw new RangeError("olderThan must be a non-negative finite number");
-    }
-    if (
-      (!Number.isInteger(limit) && limit !== Number.POSITIVE_INFINITY) ||
-      limit < 0
-    ) {
-      throw new RangeError("limit must be a non-negative integer or Infinity");
-    }
+    nonNegativeNumber("olderThan", olderThan);
+    nonNegativeIntegerOrInfinity("limit", limit);
 
     const threshold = Date.now() - olderThan;
     const removed: string[] = [];
@@ -1608,10 +1605,10 @@ function normalizeRetry(
     return { retries: 0, backoff: undefined, when: undefined };
   }
   if (typeof retry === "number") {
-    validateNonNegativeInteger("retry", retry);
+    nonNegativeInteger("retry", retry);
     return { retries: retry, backoff: undefined, when: undefined };
   }
-  validateNonNegativeInteger("retry.retries", retry.retries);
+  nonNegativeInteger("retry.retries", retry.retries);
   return {
     retries: retry.retries,
     backoff: retry.backoff,
@@ -1628,107 +1625,34 @@ async function backoffDelay(
     return 0;
   }
   if (typeof strategy === "function") {
-    return normalizeBackoff(await strategy(attempt, error));
+    const delay = await strategy(attempt, error);
+    nonNegativeNumber("backoff delay", delay);
+    return delay;
   }
   if (typeof strategy === "number") {
-    return normalizeBackoff(strategy);
+    nonNegativeNumber("backoff delay", strategy);
+    return strategy;
   }
-
-  const base =
-    strategy.type === "exponential"
-      ? strategy.delay * 2 ** Math.max(0, attempt - 1)
-      : strategy.delay;
-  const jitter = Math.min(1, Math.max(0, strategy.jitter ?? 0));
-  return normalizeBackoff(base * (1 - Math.random() * jitter));
-}
-
-function normalizeBackoff(value: number): number {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError("backoff delay must be a non-negative finite number");
-  }
-  return value;
-}
-
-function normalizeRunAt(delay: number | Date | undefined, now: number): number {
-  if (delay instanceof Date) {
-    const value = delay.getTime();
-    if (!Number.isFinite(value)) {
-      throw new RangeError("delay date must be valid");
-    }
-    return Math.max(now, value);
-  }
-  if (delay === undefined) {
-    return now;
-  }
-  if (!Number.isFinite(delay) || delay < 0) {
-    throw new RangeError("delay must be a non-negative finite number");
-  }
-  return now + delay;
-}
-
-function validateTimeout(value: number | undefined): void {
-  if (value !== undefined) {
-    validatePositiveNumber("timeout", value);
-  }
+  return backoffFromOptions(strategy, attempt);
 }
 
 function validateExecutionOptions(options: AddOptions): void {
   if (options.keyRetention !== undefined) {
-    if (!Number.isFinite(options.keyRetention) || options.keyRetention < 0) {
-      throw new RangeError(
-        "keyRetention must be a non-negative finite number"
-      );
-    }
+    nonNegativeNumber("keyRetention", options.keyRetention);
   }
   if (options.concurrency) {
-    validatePositiveInteger(
-      "concurrency.limit",
-      options.concurrency.limit
-    );
-    validatePolicyKey("concurrency.key", options.concurrency.key);
+    positiveInteger("concurrency.limit", options.concurrency.limit);
+    nonEmptyString("concurrency.key", options.concurrency.key);
   }
   if (options.throttle) {
-    validatePositiveInteger("throttle.limit", options.throttle.limit);
-    validatePositiveNumber("throttle.interval", options.throttle.interval);
-    validatePositiveInteger("throttle.burst", options.throttle.burst);
-    validatePolicyKey("throttle.key", options.throttle.key);
+    positiveInteger("throttle.limit", options.throttle.limit);
+    positiveNumber("throttle.interval", options.throttle.interval);
+    positiveInteger("throttle.burst", options.throttle.burst);
+    nonEmptyString("throttle.key", options.throttle.key);
   }
   if (options.debounce) {
-    validatePositiveNumber("debounce.wait", options.debounce.wait);
-    validatePolicyKey("debounce.key", options.debounce.key);
-  }
-}
-
-function validatePolicyKey(name: string, value: string): void {
-  if (!value.trim()) {
-    throw new TypeError(`${name} must not be empty`);
-  }
-}
-
-function validatePositiveInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new RangeError(`${name} must be a positive integer`);
-  }
-}
-
-function validateNonNegativeInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new RangeError(`${name} must be a non-negative integer`);
-  }
-}
-
-function validatePositiveNumber(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive finite number`);
-  }
-}
-
-function validatePositiveIntegerOrInfinity(
-  name: string,
-  value: number
-): void {
-  if (value !== Number.POSITIVE_INFINITY) {
-    validatePositiveInteger(name, value);
+    positiveNumber("debounce.wait", options.debounce.wait);
+    nonEmptyString("debounce.key", options.debounce.key);
   }
 }
 
@@ -1743,18 +1667,6 @@ function isTerminal(status: JobStatus): boolean {
 
 function isCancelled(job: InternalJob): boolean {
   return job.status === "cancelled";
-}
-
-function serializeError(error: Error): SerializedError {
-  return {
-    name: error.name,
-    message: error.message,
-    stack: error.stack,
-  };
-}
-
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
 }
 
 function abortMessage(reason: unknown): string {
