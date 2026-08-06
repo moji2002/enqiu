@@ -515,7 +515,32 @@ export class RedisQueue<Jobs extends JobMap> {
     this.concurrency = limit;
   }
 
+  /**
+   * Resolves once the queue has nothing waiting and nothing running.
+   *
+   * Waiting only on locally in-flight work would return immediately when
+   * called right after submitting, because the poll loop has not claimed
+   * anything yet — the caller would see "idle" with a full backlog. The queue
+   * counts are shared, so this waits for the queue to be drained, not merely
+   * for this process to be momentarily free.
+   */
   async onIdle(): Promise<void> {
+    while (!this.closed) {
+      await this.awaitInFlight();
+      const stats = await this.stats();
+      if (
+        stats.queued === 0 &&
+        stats.scheduled === 0 &&
+        stats.running === 0
+      ) {
+        return;
+      }
+      await sleep(this.driver.pollInterval);
+    }
+  }
+
+  /** Waits only for work this process has already claimed. */
+  private async awaitInFlight(): Promise<void> {
     while (this.running.size > 0) {
       await sleep(this.driver.pollInterval);
     }
@@ -527,7 +552,10 @@ export class RedisQueue<Jobs extends JobMap> {
     }
     this.started = false;
     if (options.drain ?? true) {
-      await this.onIdle();
+      // The worker is already stopped, so waiting for the whole queue would
+      // hang. Drain what this process claimed and let the rest be picked up
+      // by another worker, or by this one on restart.
+      await this.awaitInFlight();
     }
     this.closed = true;
     await Promise.allSettled(this.running);

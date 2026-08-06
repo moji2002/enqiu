@@ -26,6 +26,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:example": "pnpm run build && vitest run examples/testing",
+    "scenarios": "pnpm run build && node examples/scenarios/run-all.mjs",
     "test:watch": "vitest",
     "check": "pnpm run typecheck && pnpm run typecheck:test && pnpm run test:coverage && pnpm run build",
     "prepack": "pnpm run check"

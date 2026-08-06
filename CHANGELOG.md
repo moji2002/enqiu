@@ -46,6 +46,13 @@ real-world load.
 
 ### Fixed
 
+- **`worker.onIdle()` was effectively a no-op on the Redis driver.** It waited
+  only on work this process had already claimed, so calling it right after
+  submitting — before the poll loop had claimed anything — returned immediately
+  with a full backlog. The in-memory driver waited on queued work too, so the
+  same code behaved differently on each driver. `onIdle()` now waits for the
+  queue to be drained; `close()` still drains only in-flight work, because the
+  worker is already stopped by then.
 - **Queue events never fired on the Redis driver.** `node-redis` returns `XREAD`
   as an object keyed by stream name (and a `Map` under RESP3), while RESP2
   clients and Bun's return a nested array. The stream parser bailed on anything

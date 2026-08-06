@@ -353,4 +353,23 @@ describeRedis("Redis driver surface", () => {
       )
     ).toThrow("historyLimit must be a positive integer");
   });
+
+  it("waits for the whole queue in onIdle, not just local work", async () => {
+    const jobs = enqiu(
+      { work: async (value: number) => value },
+      { name: "idle", driver: testDriver(), worker: { concurrency: 2 } }
+    );
+
+    await jobs.work.bulk([1, 2, 3, 4, 5, 6]);
+    // Called immediately after submitting, nothing has been claimed yet.
+    // Waiting only on in-flight work would return here with a full backlog.
+    await jobs.worker.onIdle();
+
+    const stats = await jobs.queue.stats();
+    expect(stats.queued).toBe(0);
+    expect(stats.scheduled).toBe(0);
+    expect(stats.running).toBe(0);
+    expect(stats.succeeded).toBe(6);
+    await jobs.worker.close();
+  });
 });

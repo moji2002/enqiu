@@ -131,6 +131,24 @@ The Redis test runs only when `ENQIU_TEST_REDIS_URL` is set, uses a unique
 namespace instead of flushing the database, and closes the worker before the
 injected Redis client.
 
+### Runnable scenarios
+
+Ten worked examples live in
+[`examples/scenarios/`](https://github.com/moji2002/enqiu/tree/main/examples/scenarios) —
+webhook ingestion, multi-tenant rate limiting, notification campaigns, report
+progress, local-first autosave, order processing, a transcoding pool, inference
+orchestration, sensor ingestion, and failure triage. Each one asserts its own
+outcome, so a clean exit means the behaviour actually held:
+
+```bash
+pnpm run scenarios
+ENQIU_TEST_REDIS_URL=redis://localhost:6379 pnpm run scenarios   # also on Redis
+```
+
+The workloads were chosen from what the ecosystem documents rather than from
+intuition; the reasoning and its evidence grades are in
+[`docs/use-case-research.md`](docs/use-case-research.md).
+
 ### Enqiu's own test coverage
 
 The suite runs on Vitest with V8 coverage. `pnpm run check` runs both
