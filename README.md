@@ -143,8 +143,8 @@ pnpm run check           # typecheck + typecheck:test + coverage + build
 ```
 
 The Redis driver needs a live server. Without one its 18 tests are skipped
-rather than failed, and `src/redis.ts` drops out of the coverage report, so the
-reported percentage always reflects code the run actually exercised:
+rather than failed, and the `src/redis/` modules drop out of the coverage
+report, so the reported percentage always reflects code the run exercised:
 
 ```bash
 docker run -d -p 6379:6379 redis:7-alpine
