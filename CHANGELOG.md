@@ -46,6 +46,13 @@ real-world load.
 
 ### Fixed
 
+- **Queue events never fired on the Redis driver.** `node-redis` returns `XREAD`
+  as an object keyed by stream name (and a `Map` under RESP3), while RESP2
+  clients and Bun's return a nested array. The stream parser bailed on anything
+  that was not an array, so it always produced zero entries — `queue.on(...)`
+  and telemetry forwarding subscribed successfully and then stayed silent
+  forever. `XREVRANGE` does return an array, which is why cursor setup worked
+  and hid the fault.
 - A bad `logLimit` was reported as `historyLimit must be a non-negative integer`,
   because the validator hardcoded the wrong field name.
 - `queue.list({ cursor })` was honoured by Redis and silently ignored in memory,
@@ -59,10 +66,16 @@ real-world load.
 
 ### Internal
 
-- Test count rose from 36 to 116. Coverage is 96.42% of statements and 91.38% of
-  branches, with `src/internal/` fully covered. `src/redis.ts` is excluded from
-  the report because its tests require `ENQIU_TEST_REDIS_URL`; those seven tests
-  did not run for this release.
+- Test count rose from 36 to 134, all of which now run: the Redis suite was
+  verified against Redis 7.4.10 through `node-redis`. Coverage is 96.42% of
+  statements without Redis and 95.02% with it, and `src/redis.ts` rose from
+  81.13% to 93.09%. `src/internal/` is fully covered.
+- Fixed test isolation in the Redis suite. It called `flushDb()` before every
+  test, wiping a database that Vitest's parallel test files were using at the
+  same time, which made `examples/testing/jobs.redis.test.ts` fail roughly one
+  run in three. Each test now owns a namespace and cleans up only its own keys,
+  which is what the README already claimed. Doing that exposed a second latent
+  coupling: the cron test hardcoded the default `enqiu:` key prefix.
 - Resolved Airbnb style-guide violations in `src`: `no-plusplus`,
   `no-underscore-dangle`, `no-nested-ternary`, and an unused import.
 

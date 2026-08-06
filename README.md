@@ -137,31 +137,33 @@ The suite runs on Vitest with V8 coverage. `pnpm run check` runs both
 type-checks, the coverage-gated suite, and the build:
 
 ```bash
-pnpm run test            # 116 tests
+pnpm run test            # 116 tests; 134 with a Redis server
 pnpm run test:coverage   # same, with the coverage report and thresholds
 pnpm run check           # typecheck + typecheck:test + coverage + build
 ```
 
-Coverage is enforced in `vitest.config.ts`; the build fails below the
-thresholds in parentheses:
-
-| Metric     | Covered | Threshold |
-| ---------- | ------- | --------- |
-| Statements | 96.35%  | 95%       |
-| Branches   | 91.32%  | 90%       |
-| Functions  | 93.64%  | 93%       |
-| Lines      | 96.35%  | 95%       |
-
-`src/internal/` is at 100% on every metric. `src/redis.ts` is excluded from
-the report because its tests need a live server; run them with:
+The Redis driver needs a live server. Without one its 18 tests are skipped
+rather than failed, and `src/redis.ts` drops out of the coverage report, so the
+reported percentage always reflects code the run actually exercised:
 
 ```bash
-ENQIU_TEST_REDIS_URL=redis://localhost:6379 pnpm run test
+docker run -d -p 6379:6379 redis:7-alpine
+ENQIU_TEST_REDIS_URL=redis://localhost:6379 pnpm run test:coverage
 ```
 
-Without that variable the seven Redis tests are skipped rather than failing,
-so the reported percentage always reflects code the default run actually
-exercises.
+Coverage is enforced in `vitest.config.ts` and the build fails below the
+threshold for whichever mode is running:
+
+| Metric     | Default | Threshold | With Redis | Threshold |
+| ---------- | ------- | --------- | ---------- | --------- |
+| Statements | 96.42%  | 95%       | 95.02%     | 94%       |
+| Branches   | 91.36%  | 90%       | 86.53%     | 85%       |
+| Functions  | 93.69%  | 93%       | 93.10%     | 92%       |
+| Lines      | 96.42%  | 95%       | 95.02%     | 94%       |
+
+`src/internal/` is at 100% on every metric. The Redis run covers strictly more
+code — it adds `src/redis.ts` at 93.09% — but that module's Lua-adjacent guards
+are hard to drive from the outside, which is why its branch bar sits lower.
 
 ## Redis
 
