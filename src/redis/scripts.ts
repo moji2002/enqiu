@@ -124,9 +124,10 @@ if debounce_key ~= '' then
   debounce_until = tostring(tonumber(ARGV[6]) + tonumber(ARGV[20]))
 end
 
-redis.call(
-  'HSET',
-  meta,
+-- Only the fields a job actually uses are written. A job with no policies
+-- was storing twelve empty strings, and HSET costs scale with field count.
+-- Every reader already treats an absent field as its default.
+local meta_fields = {
   'id', ARGV[1],
   'name', ARGV[2],
   'input', ARGV[3],
@@ -137,21 +138,28 @@ redis.call(
   'attempt', '0',
   'retries', ARGV[7],
   'backoff', ARGV[8],
-  'timeout', ARGV[10],
-  'member', member,
-  'key', ARGV[9],
-  'expiresAt', ARGV[11],
-  'keyRetention', ARGV[12],
-  'concurrencyKey', ARGV[13],
-  'concurrencyLimit', ARGV[14],
-  'throttleKey', ARGV[15],
-  'throttleLimit', ARGV[16],
-  'throttleInterval', ARGV[17],
-  'throttleBurst', ARGV[18],
-  'debounceKey', debounce_key,
-  'debounceUntil', debounce_until,
-  'debounceMode', ARGV[21]
-)
+  'member', member
+}
+local function put(field, value)
+  if value and value ~= '' then
+    meta_fields[#meta_fields + 1] = field
+    meta_fields[#meta_fields + 1] = value
+  end
+end
+put('timeout', ARGV[10])
+put('key', ARGV[9])
+put('expiresAt', ARGV[11])
+if ARGV[12] ~= '0' then put('keyRetention', ARGV[12]) end
+put('concurrencyKey', ARGV[13])
+put('concurrencyLimit', ARGV[14])
+put('throttleKey', ARGV[15])
+put('throttleLimit', ARGV[16])
+put('throttleInterval', ARGV[17])
+put('throttleBurst', ARGV[18])
+put('debounceKey', debounce_key)
+put('debounceUntil', debounce_until)
+put('debounceMode', ARGV[21])
+redis.call('HSET', meta, unpack(meta_fields))
 
 if ARGV[9] ~= '' then
   redis.call('HSET', KEYS[7], ARGV[9], ARGV[1])
