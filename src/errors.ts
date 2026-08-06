@@ -1,4 +1,10 @@
-/** Errors a job can settle with, shared by every driver. */
+/** Errors a job can settle with. */
+
+export interface SerializedError {
+  name: string;
+  message: string;
+  stack?: string | undefined;
+}
 
 export class JobFailedError extends Error {
   readonly jobId: string;
@@ -42,25 +48,6 @@ export class JobExpiredError extends Error {
   }
 }
 
-/**
- * A job was submitted under an ID that already exists.
- *
- * Schedules rely on this being distinguishable: two workers reaching the same
- * cron tick both submit under the same deterministic occurrence ID, and the
- * loser must be able to tell "someone else already claimed this tick" from a
- * real failure. Matching on the message text instead would break silently the
- * day the wording changed, leaving the schedule stuck.
- */
-export class DuplicateJobIdError extends Error {
-  readonly jobId: string;
-
-  constructor(jobId: string) {
-    super(`Job ID "${jobId}" already exists`);
-    this.name = "DuplicateJobIdError";
-    this.jobId = jobId;
-  }
-}
-
 export class QueueClosedError extends Error {
   constructor(name: string) {
     super(`Queue "${name}" is closed`);
@@ -68,9 +55,31 @@ export class QueueClosedError extends Error {
   }
 }
 
-/**
- * An awaitable handle returned synchronously by `queue.add()`.
- *
- * Ignoring a handle is safe: MemoryQueue does not create a rejecting promise until
- * the handle is awaited or `.result` is read.
- */
+export class JobValidationError extends TypeError {
+  readonly issues: readonly StandardSchemaIssue[];
+
+  constructor(name: string, issues: readonly StandardSchemaIssue[]) {
+    super(
+      `Invalid input for job "${name}": ${
+        issues[0]?.message ?? "validation failed"
+      }`
+    );
+    this.name = "JobValidationError";
+    this.issues = issues;
+  }
+}
+
+export interface StandardSchemaIssue {
+  readonly message: string;
+  readonly path?:
+    | ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>
+    | undefined;
+}
+
+export function serializeError(error: Error): SerializedError {
+  return { name: error.name, message: error.message, stack: error.stack };
+}
+
+export function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}

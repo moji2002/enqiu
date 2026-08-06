@@ -1,22 +1,29 @@
-/** The public vocabulary of `enqiu()`, plus the `job()` definition helper. */
+/**
+ * The public vocabulary of `enqiu()`.
+ *
+ * Enqiu is a typed layer over BullMQ: it owns inference and validation, BullMQ
+ * owns storage and execution. Anything BullMQ's open-source tier cannot
+ * express is absent here rather than faked — see the compatibility notes in
+ * the README.
+ */
 
-import type {
-  JobSnapshot,
-  JobStatus,
-  MaybePromise,
-  QueueEventMap,
-  QueueStats,
-  RetryOptions,
-} from "../memory.js";
-import type {
-  DriverFactory,
-  ScheduleHandle,
-} from "../driver.js";
+import type { ConnectionOptions } from "bullmq";
+import type { SerializedError, StandardSchemaIssue } from "./errors.js";
 
-export type { ScheduleHandle, ScheduleSnapshot } from "../driver.js";
+export type { SerializedError, StandardSchemaIssue } from "./errors.js";
 
+export type MaybePromise<T> = T | PromiseLike<T>;
 
 export const definitionMarker = Symbol("enqiu.job");
+
+export type JobStatus =
+  | "queued"
+  | "scheduled"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "expired";
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
@@ -32,23 +39,12 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
         }
     >;
     // The spec declares every optional property with an explicit `| undefined`.
-    // Omitting it makes real implementations — Zod, Valibot, ArkType — fail to
-    // assign under `exactOptionalPropertyTypes`, which is exactly the strict
-    // setting this package's own tsconfig enables.
+    // Without it, Zod and friends fail to assign under
+    // `exactOptionalPropertyTypes`.
     readonly types?:
-      | {
-          readonly input: Input;
-          readonly output: Output;
-        }
+      | { readonly input: Input; readonly output: Output }
       | undefined;
   };
-}
-
-export interface StandardSchemaIssue {
-  readonly message: string;
-  readonly path?:
-    | ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>
-    | undefined;
 }
 
 export type InferSchemaInput<Schema extends StandardSchemaV1> =
@@ -84,68 +80,51 @@ export type JobHandler<
   Input = unknown,
   Output = unknown,
   Name extends string = string,
-> = (
-  input: Input,
-  context: JobContext<Name>
-) => MaybePromise<Output>;
+> = (input: Input, context: JobContext<Name>) => MaybePromise<Output>;
 
-export interface RetryPolicy
-  extends Omit<RetryOptions, "retries"> {
+export interface BackoffOptions {
+  type?: "fixed" | "exponential";
+  delay: number;
+}
+
+export interface RetryPolicy {
   /** Total number of attempts, including the first. */
   attempts: number;
+  backoff?: number | BackoffOptions;
 }
 
-export interface ConcurrencyPolicy<Input> {
-  limit: number;
-  by?: (input: Input) => string;
-}
-
-export interface ThrottlePolicy<Input> {
-  limit: number;
-  per: number;
-  burst?: number;
-  by?: (input: Input) => string;
-}
-
-export interface DebouncePolicy<Input> {
-  wait: number;
-  mode: "leading" | "trailing";
-  by: (input: Input) => string;
-}
-
-export interface JobPolicyOptions<Input> {
+/**
+ * Per-job policies.
+ *
+ * `timeout` and `expiresIn` are enforced by Enqiu around the handler, because
+ * BullMQ has neither. Keyed concurrency, keyed throttling and debounce are not
+ * here: BullMQ's open-source tier offers only a global per-worker rate limit,
+ * and per-key grouping is a BullMQ Pro feature.
+ */
+export interface JobPolicyOptions {
   retry?: number | RetryPolicy;
+  /** Per-attempt deadline. Aborts the handler's signal and fails the attempt. */
   timeout?: number;
+  /** Fail without running if the job has waited longer than this. */
   expiresIn?: number;
-  concurrency?: number | ConcurrencyPolicy<Input>;
-  throttle?: ThrottlePolicy<Input>;
-  debounce?: DebouncePolicy<Input>;
 }
 
 export interface SchemaJobDefinition<
   Schema extends StandardSchemaV1 = StandardSchemaV1,
   Output = unknown,
-> extends JobPolicyOptions<InferSchemaOutput<Schema>> {
+> extends JobPolicyOptions {
   readonly [definitionMarker]: true;
   readonly input: Schema;
   readonly run: JobHandler<InferSchemaOutput<Schema>, Output>;
 }
 
-export type HandlerJobDefinition<
-  Input = unknown,
-  Output = unknown,
-> = JobHandler<Input, Output>;
+export type HandlerJobDefinition<Input = unknown, Output = unknown> =
+  JobHandler<Input, Output>;
 
 /**
- * The constraint `enqiu()` checks each definition against.
- *
- * `any` is required in the schema position, not laziness. `JobHandler` is
- * contravariant in its input, so a handler typed to its schema's output —
- * which is the entire point of `job({ input: z.object(...) })` — is not
- * assignable to one declared to accept `unknown`. Pinning the schema to
- * `StandardSchemaV1<unknown, unknown>` rejected every real schema and
- * collapsed the inferred API to `unknown`. `JobMap` makes the same trade for
- * the same reason.
+ * `any` is required in the schema position. JobHandler is contravariant in its
+ * input and the generic is invariant in Schema, so pinning it rejects every
+ * real schema and collapses the inferred API to `unknown`.
  */
 export type JobDefinition =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -154,9 +133,6 @@ export type JobDefinition =
 
 export type JobDefinitions = Record<string, JobDefinition>;
 
-
-// These conditionals match against the same invariant generic, so they need
-// the same `any` in the positions they are not inferring.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type DefinitionInput<Definition> =
   Definition extends SchemaJobDefinition<infer Schema, any>
@@ -179,17 +155,20 @@ type DefinitionOutput<Definition> =
       ? Awaited<Output>
       : never;
 
+type DefinitionSchema<Definition> =
+  Definition extends SchemaJobDefinition<infer Schema, any> ? Schema : undefined;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export interface SubmitOptions {
   id?: string;
+  /** Reuses an existing job with the same key instead of creating a new one. */
   idempotencyKey?: string;
-  /** Keep returning the same completed job for this duration. @default 24h */
   idempotencyTtl?: number;
   delay?: number | Date;
   priority?: number | "low" | "normal" | "high";
   retry?: number | RetryPolicy;
   timeout?: number;
   expiresIn?: number;
-  signal?: AbortSignal;
 }
 
 export interface BulkOptions extends Omit<SubmitOptions, "id"> {
@@ -201,7 +180,41 @@ export interface ScheduleOptions<Input> {
   cron: string;
   timezone?: string;
   input: Input;
-  catchUp?: boolean;
+}
+
+export interface ScheduleSnapshot {
+  id: string;
+  jobName: string;
+  cron: string;
+  timezone: string;
+  nextRunAt: number;
+  input: unknown;
+}
+
+export interface ScheduleHandle {
+  readonly id: string;
+  readonly nextRunAt: number;
+  remove(): Promise<void>;
+  refresh(): Promise<ScheduleSnapshot>;
+}
+
+export interface JobSnapshot<
+  Input = unknown,
+  Output = unknown,
+  Name extends string = string,
+> {
+  id: string;
+  name: Name;
+  input: Input;
+  status: JobStatus;
+  attempt: number;
+  createdAt: number;
+  startedAt?: number | undefined;
+  finishedAt?: number | undefined;
+  progress?: unknown;
+  output?: Output | undefined;
+  error?: SerializedError | undefined;
+  logs?: readonly string[] | undefined;
 }
 
 export interface JobHandle<
@@ -212,6 +225,7 @@ export interface JobHandle<
   readonly id: string;
   readonly name: Name;
   readonly input: Input;
+  /** State at the time the handle was created or last refreshed. */
   readonly status: JobStatus;
   readonly deduplicated: boolean;
   readonly result: Promise<Output>;
@@ -237,38 +251,17 @@ export interface JobCallable<
   readonly input: Schema;
 }
 
-type DefinitionSchema<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, any>
-    ? Schema
-    : undefined;
-/* eslint-enable @typescript-eslint/no-explicit-any */
-
-export type JobsApi<Definitions extends JobDefinitions> = {
-  readonly [Name in keyof Definitions]: JobCallable<
-    DefinitionInput<Definitions[Name]>,
-    DefinitionRunInput<Definitions[Name]>,
-    DefinitionOutput<Definitions[Name]>,
-    Extract<Name, string>,
-    DefinitionSchema<Definitions[Name]>
-  >;
-} & {
-  readonly queue: QueueApi<Definitions>;
-  readonly worker: WorkerApi;
-};
-
-export type AnyJobSnapshot<Definitions extends JobDefinitions> = {
-  [Name in keyof Definitions]: JobSnapshot<
-    DefinitionRunInput<Definitions[Name]>,
-    DefinitionOutput<Definitions[Name]>,
-    Extract<Name, string>
-  >;
-}[keyof Definitions];
+export interface QueueStats {
+  queued: number;
+  scheduled: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  total: number;
+}
 
 export interface JobListQuery {
   status?: JobStatus;
-  name?: string;
-  before?: number;
-  after?: number;
   limit?: number;
   cursor?: string;
 }
@@ -279,16 +272,31 @@ export interface JobListPage<Job = JobSnapshot> {
 }
 
 export interface CleanupQuery {
-  status?: JobStatus | readonly JobStatus[];
+  status?: JobStatus;
   olderThan?: number;
   limit?: number;
 }
 
+export type AnyJobSnapshot<Definitions extends JobDefinitions> = {
+  [Name in keyof Definitions]: JobSnapshot<
+    DefinitionRunInput<Definitions[Name]>,
+    DefinitionOutput<Definitions[Name]>,
+    Extract<Name, string>
+  >;
+}[keyof Definitions];
+
+export interface QueueEventMap {
+  added: JobSnapshot;
+  started: JobSnapshot;
+  progress: JobSnapshot;
+  succeeded: JobSnapshot;
+  failed: JobSnapshot;
+  error: Error;
+}
+
 export interface QueueApi<Definitions extends JobDefinitions> {
   get(id: string): Promise<AnyJobSnapshot<Definitions> | undefined>;
-  list(
-    query?: JobListQuery
-  ): Promise<JobListPage<AnyJobSnapshot<Definitions>>>;
+  list(query?: JobListQuery): Promise<JobListPage<AnyJobSnapshot<Definitions>>>;
   stats(): Promise<QueueStats>;
   pause(): Promise<void>;
   resume(): Promise<void>;
@@ -331,33 +339,31 @@ export interface Telemetry {
   emit(event: TelemetryEvent): void;
 }
 
-export interface SharedEnqiuOptions {
+export interface EnqiuOptions {
+  /** Queue name. @default "default" */
   name?: string;
+  /** Redis connection, passed straight to BullMQ. */
+  connection: ConnectionOptions;
+  /** Redis key namespace. */
+  prefix?: string;
+  /** Run handlers in this process. `false` makes it producer-only. */
   worker?: false | WorkerOptions;
   retry?: number | RetryPolicy;
   timeout?: number;
-  historyLimit?: number;
+  /** Structured log lines retained per job. @default 100 */
   logLimit?: number;
   telemetry?: Telemetry;
 }
 
-export interface MemoryEnqiuOptions extends SharedEnqiuOptions {
-  driver?: undefined;
-}
-
-export interface DriverEnqiuOptions extends SharedEnqiuOptions {
-  /** A driver factory, such as the one returned by `redis(client)`. */
-  driver: DriverFactory;
-  /** Shared backends must explicitly choose producer-only or worker mode. */
-  worker: false | WorkerOptions;
-}
-
-export type EnqiuOptions = MemoryEnqiuOptions | DriverEnqiuOptions;
-
-export interface NormalizedDefinition {
-  schema: StandardSchemaV1 | undefined;
-  run: JobHandler;
-  policy: JobPolicyOptions<unknown>;
-}
-
-
+export type JobsApi<Definitions extends JobDefinitions> = {
+  readonly [Name in keyof Definitions]: JobCallable<
+    DefinitionInput<Definitions[Name]>,
+    DefinitionRunInput<Definitions[Name]>,
+    DefinitionOutput<Definitions[Name]>,
+    Extract<Name, string>,
+    DefinitionSchema<Definitions[Name]>
+  >;
+} & {
+  readonly queue: QueueApi<Definitions>;
+  readonly worker: WorkerApi;
+};

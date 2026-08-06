@@ -5,6 +5,49 @@ All notable changes to this project are documented here. The project follows
 
 ## Unreleased
 
+## [0.3.0-alpha.0] - 2026-08-06
+
+Enqiu is now a typed layer over [BullMQ](https://bullmq.io) rather than a queue
+implementation. BullMQ owns storage, scheduling and execution; Enqiu owns the
+developer experience — inferred job names, schema-validated input, and one
+object you call like a function.
+
+This reverses the direction taken in 0.1.0, which replaced an earlier BullMQ
+wrapper with first-party drivers.
+
+### Breaking
+
+- **`connection` is required.** `enqiu()` now takes a BullMQ connection instead
+  of a driver. `driver`, `redis()` and `DriverEnqiuOptions` are gone.
+- **The in-memory driver is removed, and with it browser support.** BullMQ
+  requires Redis and Node, so the `browser` export has been dropped. An in-tab,
+  non-durable queue is no longer possible.
+- **Zero runtime dependencies is no longer true.** `bullmq` and `ioredis` are
+  peer dependencies.
+- **Per-key concurrency, per-key throttling and debounce are removed.** BullMQ's
+  open-source tier offers one global `{ max, duration }` limiter per worker;
+  per-key grouping is a BullMQ Pro feature. These are absent rather than faked.
+- **`historyLimit`, `rateLimit` and `catchUp` schedules are removed**, having no
+  open-source equivalent. `logLimit` maps onto BullMQ's `keepLogs`.
+- `JobSnapshot` is reshaped around BullMQ's job model: no `priority`, `retries`,
+  `runAt` or `expiresAt`; `logs` are strings rather than structured entries.
+
+### Kept
+
+- `job()`, full type inference, and Standard Schema validation.
+- Per-attempt `timeout` with an `AbortSignal`, and `expiresIn`. BullMQ has
+  neither; Enqiu enforces both around the handler.
+- The serialization guard, which still reports the exact path of an
+  unserialisable value.
+- `queue` and `worker` control surfaces, mapped onto BullMQ.
+
+### Removed
+
+- `src/memory/*`, `src/redis/*`, `src/drivers/*`, the `QueueDriver` seam, the
+  cron parser and 728 lines of Lua — roughly 4,000 lines.
+- Five of the ten scenarios, which demonstrated features that no longer exist.
+- The BullMQ comparison benchmark, which no longer has two things to compare.
+
 ## [0.2.0-alpha.0] - 2026-08-06
 
 Enqiu is now labelled alpha and published under the `alpha` dist-tag, so

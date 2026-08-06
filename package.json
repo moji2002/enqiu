@@ -1,14 +1,12 @@
 {
   "name": "enqiu",
-  "version": "0.2.0-alpha.0",
-  "description": "A type-safe job queue for browsers, Node.js, and Bun with memory and Redis drivers",
+  "version": "0.3.0-alpha.0",
+  "description": "A type-safe, schema-validated job API on top of BullMQ",
   "type": "module",
   "types": "./dist/index.d.ts",
-  "browser": "./dist/index.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "browser": "./dist/index.js",
       "import": "./dist/index.js"
     }
   },
@@ -35,18 +33,13 @@
     "queue",
     "job",
     "background-jobs",
+    "bullmq",
     "redis",
-    "bun",
-    "node",
-    "cron",
-    "scheduler",
-    "hono",
-    "concurrency",
-    "rate-limit",
-    "retry",
     "typescript",
-    "browser",
-    "in-memory"
+    "zod",
+    "standard-schema",
+    "cron",
+    "retry"
   ],
   "author": "Mojtaba Beheshti <it@worksonmy.dev>",
   "license": "MIT",
@@ -79,5 +72,9 @@
     "typescript": "^5.9.0",
     "vitest": "^1.6.1",
     "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "bullmq": ">=5",
+    "ioredis": ">=5"
   }
 }
