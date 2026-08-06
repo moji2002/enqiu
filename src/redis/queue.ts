@@ -93,6 +93,8 @@ export class RedisQueue<Jobs extends JobMap> {
   private readonly workerEnabled: boolean;
   private concurrency: number;
   private lastScheduleTick = 0;
+  /** SHA per script, loaded lazily and shared by concurrent callers. */
+  private readonly scriptShas = new Map<string, Promise<string>>();
   private readonly retry: NormalizedRedisRetry;
   private readonly timeout: number | undefined;
   private readonly rateLimit: RateLimitOptions | undefined;
@@ -1130,17 +1132,46 @@ export class RedisQueue<Jobs extends JobMap> {
     throw new TypeError("Invalid Redis command client");
   }
 
-  private eval(
+  /**
+   * Runs a script by hash, loading it once per connection.
+   *
+   * EVAL ships the whole script body every call. The claim script alone is
+   * 8KB, so a plain EVAL per job pushed megabytes of unchanged Lua over the
+   * socket. EVALSHA sends a 40-byte digest instead. Redis may drop its script
+   * cache (restart, SCRIPT FLUSH), which surfaces as NOSCRIPT and is recovered
+   * by falling back to EVAL and reloading.
+   */
+  private async eval(
     script: string,
     keys: string[],
     arguments_: string[]
   ): Promise<unknown> {
-    return this.command("EVAL", [
-      script,
-      String(keys.length),
-      ...keys,
-      ...arguments_,
-    ]);
+    const tail = [String(keys.length), ...keys, ...arguments_];
+    try {
+      const sha = await this.scriptSha(script);
+      return await this.command("EVALSHA", [sha, ...tail]);
+    } catch (cause) {
+      if (!isNoScriptError(cause)) {
+        throw cause;
+      }
+      this.scriptShas.delete(script);
+      return this.command("EVAL", [script, ...tail]);
+    }
+  }
+
+  private scriptSha(script: string): Promise<string> {
+    let pending = this.scriptShas.get(script);
+    if (!pending) {
+      pending = Promise.resolve(this.command("SCRIPT", ["LOAD", script]))
+        .then(String)
+        .catch((cause: unknown) => {
+          // Never cache a failed load, or every later call reuses the failure.
+          this.scriptShas.delete(script);
+          throw cause;
+        });
+      this.scriptShas.set(script, pending);
+    }
+    return pending;
   }
 
   private assertOpen(): void {
@@ -1253,6 +1284,13 @@ function retryDelay(
 }
 
 
+
+/** Redis reports an unknown script hash with a NOSCRIPT-prefixed error. */
+function isNoScriptError(cause: unknown): boolean {
+  return (
+    cause instanceof Error && cause.message.toUpperCase().includes("NOSCRIPT")
+  );
+}
 
 function createId(
   queue: string,

@@ -29,6 +29,15 @@ if (!URL) {
 const JOBS = Number(process.env.BENCH_JOBS ?? 2000);
 const CONCURRENCY = Number(process.env.BENCH_CONCURRENCY ?? 16);
 const RUNS = Number(process.env.BENCH_RUNS ?? 3);
+/**
+ * Simulated work per job. At 0 the benchmark measures pure queue overhead,
+ * which is the harshest possible framing; real jobs do I/O, and that is what
+ * decides whether the overhead is even visible.
+ */
+const WORK_MS = Number(process.env.BENCH_WORK_MS ?? 0);
+const work = async () => {
+  if (WORK_MS > 0) await new Promise((r) => setTimeout(r, WORK_MS));
+};
 
 const median = (values: number[]): number =>
   [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] as number;
@@ -59,6 +68,7 @@ async function bullmq(): Promise<number> {
   const worker = new Worker(
     "bench",
     async (job) => {
+      await work();
       done += 1;
       if (done === JOBS) finished();
       return job.data;
@@ -99,7 +109,12 @@ async function enqiuRedis(pollInterval: number): Promise<number> {
   };
 
   const jobs = enqiu(
-    { work: async (value: { i: number }) => value },
+    {
+      work: async (value: { i: number }) => {
+        await work();
+        return value;
+      },
+    },
     {
       name: "bench",
       driver: redis(command, { prefix, pollInterval }),
@@ -120,7 +135,12 @@ async function enqiuRedis(pollInterval: number): Promise<number> {
 /** Enqiu's in-process driver: no I/O at all. A different category, not a rival. */
 async function enqiuMemory(): Promise<number> {
   const jobs = enqiu(
-    { work: async (value: { i: number }) => value },
+    {
+      work: async (value: { i: number }) => {
+        await work();
+        return value;
+      },
+    },
     { name: "bench", worker: { concurrency: CONCURRENCY } }
   );
   const started = process.hrtime.bigint();
