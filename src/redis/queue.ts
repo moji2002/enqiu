@@ -41,11 +41,6 @@ import {
   encodeJobValue as encode,
 } from "../codec.js";
 import {
-  nextCronOccurrence,
-  parseCron,
-  validateTimeZone,
-} from "../cron.js";
-import {
   applySnapshot,
   snapshotFromFields,
 } from "./snapshot.js";
@@ -68,8 +63,8 @@ import type {
 
 import { queueKeys } from "./keys.js";
 import { RedisEvents } from "./events.js";
+import { RedisSchedules } from "./schedules.js";
 import {
-  ADVANCE_SCHEDULE_SCRIPT,
   CANCEL_SCRIPT,
   CLAIM_SCRIPT,
   COMPLETE_SCRIPT,
@@ -79,7 +74,6 @@ import {
   REDRIVE_SCRIPT,
   REMOVE_SCRIPT,
   STATS_SCRIPT,
-  UPSERT_SCHEDULE_SCRIPT,
 } from "./scripts.js";
 
 
@@ -100,6 +94,7 @@ export class RedisQueue<Jobs extends JobMap> {
   private readonly keys: ReturnType<typeof queueKeys>;
   private readonly local = new Map<string, RedisJobRecord>();  private readonly running = new Set<Promise<void>>();
   private readonly events: RedisEvents;
+  private readonly schedules: RedisSchedules;
 
   private started: boolean;
   private closed = false;
@@ -129,6 +124,16 @@ export class RedisQueue<Jobs extends JobMap> {
       eventsKey: this.keys.events,
       pollInterval: this.driver.pollInterval,
       isClosed: () => this.closed,
+    });
+    this.schedules = new RedisSchedules({
+      command: (command, arguments_) => this.command(command, arguments_),
+      eval: (script, keys, arguments_) => this.eval(script, keys, arguments_),
+      submit: (name, input, options) =>
+        this.add(name as JobName<Jobs>, input as never, options),
+      emit: (event, payload) => this.events.emit(event, payload),
+      assertOpen: () => this.assertOpen(),
+      keys: this.keys,
+      name: this.name,
     });
 
     positiveIntegerOrInfinity("concurrency", this.concurrency);
@@ -418,121 +423,6 @@ export class RedisQueue<Jobs extends JobMap> {
     ]);
   }
 
-  async upsertSchedule(
-    registration: RedisScheduleRegistration
-  ): Promise<RedisScheduleHandle> {
-    this.assertOpen();
-    parseCron(registration.cron);
-    const timezone = validateTimeZone(registration.timezone ?? "UTC");
-    const id = registration.id?.trim() || registration.jobName;
-    if (!id) {
-      throw new TypeError("schedule.id must not be empty");
-    }
-    const nextRunAt = nextCronOccurrence(
-      registration.cron,
-      timezone,
-      Date.now()
-    );
-    const result = await this.eval(
-      UPSERT_SCHEDULE_SCRIPT,
-      [this.keys.scheduleMeta, this.keys.schedules],
-      [
-        id,
-        registration.jobName,
-        registration.cron,
-        timezone,
-        String(nextRunAt),
-        encode(registration.input),
-        registration.catchUp ? "1" : "0",
-        encode(registration.submit),
-      ]
-    );
-    if (
-      !Array.isArray(result) ||
-      String(result[0]) !== "ok"
-    ) {
-      const owner = Array.isArray(result) ? String(result[1]) : "another job";
-      throw new Error(
-        `Schedule "${id}" already belongs to job "${owner}"`
-      );
-    }
-    return new RedisScheduleHandleImpl(this, id, nextRunAt);
-  }
-
-  async getSchedule(
-    id: string
-  ): Promise<RedisScheduleSnapshot | undefined> {
-    const values = await this.command("HMGET", [
-      this.keys.scheduleMeta + id,
-      "id",
-      "jobName",
-      "cron",
-      "timezone",
-      "status",
-      "nextRunAt",
-      "input",
-      "catchUp",
-    ]);
-    if (!Array.isArray(values) || values[0] === null) {
-      return undefined;
-    }
-    return {
-      id: String(values[0]),
-      jobName: String(values[1]),
-      cron: String(values[2]),
-      timezone: String(values[3]),
-      status: String(values[4]) as "active" | "paused",
-      nextRunAt: Number(values[5]),
-      input: decode(String(values[6])),
-      catchUp: String(values[7]) === "1",
-    };
-  }
-
-  async pauseSchedule(id: string): Promise<void> {
-    if (!(await this.getSchedule(id))) {
-      throw new Error(`Schedule "${id}" does not exist`);
-    }
-    await this.command("HSET", [
-      this.keys.scheduleMeta + id,
-      "status",
-      "paused",
-    ]);
-    await this.command("ZREM", [this.keys.schedules, id]);
-  }
-
-  async resumeSchedule(id: string): Promise<number> {
-    const schedule = await this.getSchedule(id);
-    if (!schedule) {
-      throw new Error(`Schedule "${id}" does not exist`);
-    }
-    const nextRunAt = nextCronOccurrence(
-      schedule.cron,
-      schedule.timezone,
-      Date.now()
-    );
-    await this.command("HSET", [
-      this.keys.scheduleMeta + id,
-      "status",
-      "active",
-      "nextRunAt",
-      String(nextRunAt),
-    ]);
-    await this.command("ZADD", [
-      this.keys.schedules,
-      String(nextRunAt),
-      id,
-    ]);
-    return nextRunAt;
-  }
-
-  async removeSchedule(id: string): Promise<void> {
-    if (!(await this.getSchedule(id))) {
-      throw new Error(`Schedule "${id}" does not exist`);
-    }
-    await this.command("ZREM", [this.keys.schedules, id]);
-    await this.command("DEL", [this.keys.scheduleMeta + id]);
-  }
-
   async cancel(id: string, reason = "Job was cancelled"): Promise<boolean> {
     const error = serializeError(new JobCancelledError(id, reason));
     const result = await this.eval(
@@ -642,6 +532,16 @@ export class RedisQueue<Jobs extends JobMap> {
     await Promise.allSettled(this.running);
     await this.workerLoop;
     await this.events.drain();
+  }
+
+  upsertSchedule(
+    registration: RedisScheduleRegistration
+  ): Promise<RedisScheduleHandle> {
+    return this.schedules.upsertSchedule(registration);
+  }
+
+  getSchedule(id: string): Promise<RedisScheduleSnapshot | undefined> {
+    return this.schedules.getSchedule(id);
   }
 
   on<Event extends keyof RedisQueueEventMap>(
@@ -789,7 +689,7 @@ export class RedisQueue<Jobs extends JobMap> {
       }
 
       try {
-        await this.processSchedules();
+        await this.schedules.tick();
         const claimed = await this.claim();
         if (!claimed) {
           if (this.running.size > 0) {
@@ -878,79 +778,6 @@ export class RedisQueue<Jobs extends JobMap> {
           : Number(result[7]),
       token,
     };
-  }
-
-  private async processSchedules(): Promise<void> {
-    const now = Date.now();
-    const raw = await this.command("ZRANGEBYSCORE", [
-      this.keys.schedules,
-      "-inf",
-      String(now),
-      "LIMIT",
-      "0",
-      "20",
-    ]);
-    const ids = Array.isArray(raw) ? raw.map(String) : [];
-    for (const id of ids) {
-      const values = await this.command("HMGET", [
-        this.keys.scheduleMeta + id,
-        "jobName",
-        "cron",
-        "timezone",
-        "status",
-        "nextRunAt",
-        "input",
-        "catchUp",
-        "submit",
-      ]);
-      if (!Array.isArray(values) || values[0] === null) {
-        await this.command("ZREM", [this.keys.schedules, id]);
-        continue;
-      }
-      if (String(values[3]) !== "active") {
-        await this.command("ZREM", [this.keys.schedules, id]);
-        continue;
-      }
-
-      const jobName = String(values[0]);
-      const cron = String(values[1]);
-      const timezone = String(values[2]);
-      const occurrence = Number(values[4]);
-      const input = decode(String(values[5]));
-      const catchUp = String(values[6]) === "1";
-      const submit = decode(String(values[7])) as RedisAddOptions;
-      const nextRunAt = nextCronOccurrence(
-        cron,
-        timezone,
-        catchUp ? occurrence : now
-      );
-      const occurrenceId = `${this.name}:schedule:${id}:${occurrence}`;
-
-      let accepted = false;
-      try {
-        const handle = this.add(jobName as JobName<Jobs>, input as never, {
-          ...submit,
-          id: occurrenceId,
-        });
-        await handle.accepted;
-        accepted = true;
-      } catch (cause) {
-        const error = toError(cause);
-        if (error.message.includes(`Job ID "${occurrenceId}" already exists`)) {
-          accepted = true;
-        } else {
-          this.events.emit("error", error);
-        }
-      }
-      if (!accepted) {
-        continue;
-      }
-      await this.eval(
-        ADVANCE_SCHEDULE_SCRIPT,
-        [this.keys.scheduleMeta, this.keys.schedules],
-        [id, String(occurrence), String(nextRunAt)]
-      );
-    }
   }
 
   private async execute(claimed: ClaimedJob): Promise<void> {
@@ -1289,43 +1116,6 @@ class RedisJobHandle<Output, Input, Name extends string>
 }
 
 /** Presents a Redis job through the driver contract. */
-
-class RedisScheduleHandleImpl implements RedisScheduleHandle {
-  private cachedNextRunAt: number;
-
-  constructor(
-    private readonly owner: RedisQueue<JobMap>,
-    readonly id: string,
-    nextRunAt: number
-  ) {
-    this.cachedNextRunAt = nextRunAt;
-  }
-
-  get nextRunAt(): number {
-    return this.cachedNextRunAt;
-  }
-
-  async pause(): Promise<void> {
-    await this.owner.pauseSchedule(this.id);
-  }
-
-  async resume(): Promise<void> {
-    this.cachedNextRunAt = await this.owner.resumeSchedule(this.id);
-  }
-
-  async remove(): Promise<void> {
-    await this.owner.removeSchedule(this.id);
-  }
-
-  async refresh(): Promise<RedisScheduleSnapshot> {
-    const value = await this.owner.getSchedule(this.id);
-    if (!value) {
-      throw new Error(`Schedule "${this.id}" does not exist`);
-    }
-    this.cachedNextRunAt = value.nextRunAt;
-    return value;
-  }
-}
 
 
 /** Cleanup defaults to every terminal status when the caller names none. */
