@@ -12,6 +12,7 @@ import {
   positiveNumber,
 } from "../internal/validate.js";
 import { BinaryHeap } from "./heap.js";
+import { ExecutionPolicies } from "./policies.js";
 import {
   JobCancelledError,
   JobExpiredError,
@@ -54,10 +55,6 @@ interface NormalizedRetry {
   when: RetryOptions["when"] | undefined;
 }
 
-interface ThrottleState {
-  tokens: number;
-  updatedAt: number;
-}
 
 interface DebounceState {
   job: InternalJob;
@@ -173,9 +170,8 @@ export class MemoryQueue<Jobs extends JobMap> {
   private readonly handlers: Jobs;
   private readonly records = new Map<string, InternalJob>();
   private readonly keys = new Map<string, InternalJob>();
-  private readonly activeKeys = new Map<string, number>();
-  private readonly throttleStates = new Map<string, ThrottleState>();
   private readonly debounceStates = new Map<string, DebounceState>();
+  private readonly policies = new ExecutionPolicies();
   private readonly ready = new BinaryHeap<InternalJob>(readyBefore);
   private readonly delayed = new BinaryHeap<InternalJob>(delayedBefore);
   private readonly listeners = new Map<
@@ -218,7 +214,6 @@ export class MemoryQueue<Jobs extends JobMap> {
   private idleNotified = true;
   private pumpQueued = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private policyWakeAt: number | undefined;
 
   constructor(handlers: Jobs, options: QueueOptions = {}) {
     if (Object.keys(handlers).length === 0) {
@@ -791,7 +786,7 @@ export class MemoryQueue<Jobs extends JobMap> {
 
     this.clearTimer();
     const now = Date.now();
-    this.policyWakeAt = undefined;
+    this.policies.clearWake();
     this.prunePolicyState(now);
     this.expireWaiting(now);
     this.promoteDelayed(now);
@@ -805,7 +800,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       if (!job) {
         break;
       }
-      this.beginExecutionPolicy(job, now);
+      this.policies.begin(job, now);
       if (this.rateLimit) {
         this.starts.push(Date.now());
       }
@@ -866,7 +861,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       if (job.status !== "queued") {
         continue;
       }
-      if (this.canStart(job, now)) {
+      if (this.policies.canStart(job, now)) {
         selected = job;
         break;
       }
@@ -876,73 +871,6 @@ export class MemoryQueue<Jobs extends JobMap> {
       this.ready.push(job);
     }
     return selected;
-  }
-
-  private canStart(job: InternalJob, now: number): boolean {
-    if (job.concurrency) {
-      const active = this.activeKeys.get(job.concurrency.key) ?? 0;
-      if (active >= job.concurrency.limit) {
-        return false;
-      }
-    }
-    if (job.throttle) {
-      const state = this.refillThrottle(job.throttle, now);
-      if (state.tokens < 1) {
-        const refillPerMs =
-          job.throttle.limit / job.throttle.interval;
-        const wakeAt = now + Math.ceil((1 - state.tokens) / refillPerMs);
-        this.policyWakeAt =
-          this.policyWakeAt === undefined
-            ? wakeAt
-            : Math.min(this.policyWakeAt, wakeAt);
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private beginExecutionPolicy(job: InternalJob, now: number): void {
-    if (job.concurrency) {
-      this.activeKeys.set(
-        job.concurrency.key,
-        (this.activeKeys.get(job.concurrency.key) ?? 0) + 1
-      );
-    }
-    if (job.throttle) {
-      const state = this.refillThrottle(job.throttle, now);
-      state.tokens = Math.max(0, state.tokens - 1);
-    }
-  }
-
-  private releaseExecutionPolicy(job: InternalJob): void {
-    if (!job.concurrency) {
-      return;
-    }
-    const active = (this.activeKeys.get(job.concurrency.key) ?? 1) - 1;
-    if (active <= 0) {
-      this.activeKeys.delete(job.concurrency.key);
-    } else {
-      this.activeKeys.set(job.concurrency.key, active);
-    }
-  }
-
-  private refillThrottle(
-    policy: ThrottleOptions,
-    now: number
-  ): ThrottleState {
-    let state = this.throttleStates.get(policy.key);
-    if (!state) {
-      state = { tokens: policy.burst, updatedAt: now };
-      this.throttleStates.set(policy.key, state);
-      return state;
-    }
-    const elapsed = Math.max(0, now - state.updatedAt);
-    state.tokens = Math.min(
-      policy.burst,
-      state.tokens + elapsed * (policy.limit / policy.interval)
-    );
-    state.updatedAt = now;
-    return state;
   }
 
   private hasReady(): boolean {
@@ -987,11 +915,9 @@ export class MemoryQueue<Jobs extends JobMap> {
       const rateWake = this.starts[0] + this.rateLimit.interval;
       wakeAt = wakeAt === undefined ? rateWake : Math.min(wakeAt, rateWake);
     }
-    if (this.policyWakeAt !== undefined) {
-      wakeAt =
-        wakeAt === undefined
-          ? this.policyWakeAt
-          : Math.min(wakeAt, this.policyWakeAt);
+    const policyWakeAt = this.policies.nextWakeAt;
+    if (policyWakeAt !== undefined) {
+      wakeAt = wakeAt === undefined ? policyWakeAt : Math.min(wakeAt, policyWakeAt);
     }
     for (const job of this.expiringJobs) {
       const expiresAt = job.expiresAt as number;
@@ -1090,7 +1016,7 @@ export class MemoryQueue<Jobs extends JobMap> {
         clearTimeout(timeoutTimer);
       }
       job.controller = undefined;
-      this.releaseExecutionPolicy(job);
+      this.policies.release(job);
       this.runningCount -= 1;
       this.notifyIdle();
       this.requestPump();
