@@ -1,0 +1,399 @@
+/* Enqiu — the API is the product, so the page leads with the call site
+   rather than with prose. Space Grotesk + Space Mono, cobalt accent:
+   deliberately distinct from purifai (warm serif) and unsmuggle (cool sans). */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('/fonts/space-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('/fonts/space-mono-latin-700-normal.woff2') format('woff2');
+}
+
+:root {
+  --paper: #f7f8fa;
+  --raised: #ffffff;
+  --ink: #15171c;
+  --muted: #5f6572;
+  --rule: #e0e4ea;
+  --accent: #1d4ed8;
+  --slab: #12151b;
+  --slab-fg: #d9e0ea;
+
+  --syn-keyword: #93b4ff;
+  --syn-string: #9ad9a8;
+  --syn-fn: #f0c479;
+  --syn-comment: #737e91;
+
+  --display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --measure: 42rem;
+  --bar: 3.25rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1016;
+    --raised: #151922;
+    --ink: #e4e8ef;
+    --muted: #939caa;
+    --rule: #242a35;
+    --accent: #7aa2f7;
+    --slab: #080a0e;
+    --slab-fg: #d3dae5;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: clamp(1.5rem, 4vw, 3rem) 1.5rem 4rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1rem;
+  line-height: 1.6;
+  font-weight: 350;
+  text-rendering: optimizeLegibility;
+}
+
+main {
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+/* ---- sticky bar: a queue-depth strip, not a link row ---- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: var(--bar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  margin: calc(-1 * clamp(1.5rem, 4vw, 3rem)) -1.5rem 2.5rem;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: saturate(1.6) blur(10px);
+  -webkit-backdrop-filter: saturate(1.6) blur(10px);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--paper);
+  }
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  text-decoration: none;
+  flex: none;
+}
+
+/* Three ticks reading as queued items — the mark restates the product. */
+.wordmark::before {
+  content: '';
+  width: 0.9rem;
+  height: 0.62rem;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 0.2rem,
+    transparent 0.2rem 0.35rem,
+    var(--accent) 0.35rem 0.55rem,
+    transparent 0.55rem 0.7rem,
+    var(--accent) 0.7rem 0.9rem
+  );
+}
+
+.topbar nav {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topbar nav::-webkit-scrollbar {
+  display: none;
+}
+
+.topbar nav a {
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.topbar nav a:hover {
+  color: var(--accent);
+}
+
+:target,
+h2[id] {
+  scroll-margin-top: calc(var(--bar) + 1rem);
+}
+
+/* ---- hero: headline then immediately the call site ---- */
+
+.masthead {
+  margin-bottom: 2.5rem;
+}
+
+h1 {
+  font-size: clamp(2.5rem, 1.9rem + 2.8vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  margin: 0 0 0.9rem;
+  text-wrap: balance;
+}
+
+.lede {
+  font-size: 1.1875rem;
+  line-height: 1.4;
+  margin: 0 0 0.75rem;
+  text-wrap: balance;
+}
+
+.sub {
+  color: var(--muted);
+  margin: 0;
+}
+
+/* Spec strip — facts, not invented metrics. */
+.spec {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spec li {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  background: var(--raised);
+}
+
+/* ---- structure ---- */
+
+section {
+  margin-bottom: 2.75rem;
+}
+
+h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0 0 0.8rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--rule);
+  text-wrap: balance;
+}
+
+p {
+  margin: 0 0 0.9rem;
+}
+
+.note {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.label {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.4rem;
+}
+
+/* ---- code ---- */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  overflow-wrap: break-word;
+}
+
+pre {
+  background: var(--slab);
+  color: var(--slab-fg);
+  border-radius: 8px;
+  padding: 1.1rem 1.2rem;
+  margin: 0 0 1rem;
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  white-space: pre;
+}
+
+pre .k {
+  color: var(--syn-keyword);
+}
+pre .s {
+  color: var(--syn-string);
+}
+pre .f {
+  color: var(--syn-fn);
+}
+pre .c {
+  color: var(--syn-comment);
+}
+
+/* ---- driver comparison ---- */
+
+.drivers {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 40rem) {
+  .drivers {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.driver {
+  background: var(--raised);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+}
+
+.driver h3 {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+}
+
+.driver p {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ---- boundaries list ---- */
+
+.bounds {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bounds li {
+  font-size: 0.9375rem;
+  color: var(--muted);
+  padding: 0.6rem 0 0.6rem 1.4rem;
+  border-bottom: 1px solid var(--rule);
+  position: relative;
+}
+
+.bounds li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.bounds li:last-child {
+  border-bottom: none;
+}
+
+/* ---- links & footer ---- */
+
+a {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding-top: 1.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1.1rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+}
+
+footer p {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

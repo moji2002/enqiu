@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Enqiu">
+  <rect width="32" height="32" rx="7" fill="#1d4ed8" />
+  <!-- Three queued items, the leading one drawn as it leaves the queue. -->
+  <g fill="#f7f8fa">
+    <rect x="6" y="13" width="5" height="6" rx="1.5" />
+    <rect x="13.5" y="13" width="5" height="6" rx="1.5" />
+    <rect x="21" y="13" width="5" height="6" rx="1.5" opacity="0.45" />
+  </g>
+</svg>
