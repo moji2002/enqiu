@@ -12,6 +12,7 @@ import {
   encodeJobValue as encode,
 } from "../codec.js";
 import { toError } from "../internal/errors.js";
+import { DuplicateJobIdError } from "../memory/errors.js";
 import {
   ADVANCE_SCHEDULE_SCRIPT,
   UPSERT_SCHEDULE_SCRIPT,
@@ -25,7 +26,7 @@ import type {
 } from "./types.js";
 
 /** What schedules need from the queue that owns them. */
-export interface ScheduleConnection {
+export interface ScheduleHost {
   command(command: string, arguments_: string[]): Promise<unknown>;
   eval(script: string, keys: string[], arguments_: string[]): Promise<unknown>;
   submit(name: string, input: unknown, options: RedisAddOptions): {
@@ -38,12 +39,18 @@ export interface ScheduleConnection {
 }
 
 export class RedisSchedules {
-  constructor(private readonly connection: ScheduleConnection) {}
+  private readonly keys: ScheduleHost["keys"];
+  private readonly queueName: string;
 
-  async upsertSchedule(
+  constructor(private readonly host: ScheduleHost) {
+    this.keys = host.keys;
+    this.queueName = host.name;
+  }
+
+  async upsert(
     registration: RedisScheduleRegistration
   ): Promise<RedisScheduleHandle> {
-    this.connection.assertOpen();
+    this.host.assertOpen();
     parseCron(registration.cron);
     const timezone = validateTimeZone(registration.timezone ?? "UTC");
     const id = registration.id?.trim() || registration.jobName;
@@ -55,9 +62,9 @@ export class RedisSchedules {
       timezone,
       Date.now()
     );
-    const result = await this.connection.eval(
+    const result = await this.host.eval(
       UPSERT_SCHEDULE_SCRIPT,
-      [this.connection.keys.scheduleMeta, this.connection.keys.schedules],
+      [this.keys.scheduleMeta, this.keys.schedules],
       [
         id,
         registration.jobName,
@@ -81,11 +88,11 @@ export class RedisSchedules {
     return new RedisScheduleHandleImpl(this, id, nextRunAt);
   }
 
-  async getSchedule(
+  async get(
     id: string
   ): Promise<RedisScheduleSnapshot | undefined> {
-    const values = await this.connection.command("HMGET", [
-      this.connection.keys.scheduleMeta + id,
+    const values = await this.host.command("HMGET", [
+      this.keys.scheduleMeta + id,
       "id",
       "jobName",
       "cron",
@@ -110,20 +117,20 @@ export class RedisSchedules {
     };
   }
 
-  async pauseSchedule(id: string): Promise<void> {
-    if (!(await this.getSchedule(id))) {
+  async pause(id: string): Promise<void> {
+    if (!(await this.get(id))) {
       throw new Error(`Schedule "${id}" does not exist`);
     }
-    await this.connection.command("HSET", [
-      this.connection.keys.scheduleMeta + id,
+    await this.host.command("HSET", [
+      this.keys.scheduleMeta + id,
       "status",
       "paused",
     ]);
-    await this.connection.command("ZREM", [this.connection.keys.schedules, id]);
+    await this.host.command("ZREM", [this.keys.schedules, id]);
   }
 
-  async resumeSchedule(id: string): Promise<number> {
-    const schedule = await this.getSchedule(id);
+  async resume(id: string): Promise<number> {
+    const schedule = await this.get(id);
     if (!schedule) {
       throw new Error(`Schedule "${id}" does not exist`);
     }
@@ -132,33 +139,33 @@ export class RedisSchedules {
       schedule.timezone,
       Date.now()
     );
-    await this.connection.command("HSET", [
-      this.connection.keys.scheduleMeta + id,
+    await this.host.command("HSET", [
+      this.keys.scheduleMeta + id,
       "status",
       "active",
       "nextRunAt",
       String(nextRunAt),
     ]);
-    await this.connection.command("ZADD", [
-      this.connection.keys.schedules,
+    await this.host.command("ZADD", [
+      this.keys.schedules,
       String(nextRunAt),
       id,
     ]);
     return nextRunAt;
   }
 
-  async removeSchedule(id: string): Promise<void> {
-    if (!(await this.getSchedule(id))) {
+  async remove(id: string): Promise<void> {
+    if (!(await this.get(id))) {
       throw new Error(`Schedule "${id}" does not exist`);
     }
-    await this.connection.command("ZREM", [this.connection.keys.schedules, id]);
-    await this.connection.command("DEL", [this.connection.keys.scheduleMeta + id]);
+    await this.host.command("ZREM", [this.keys.schedules, id]);
+    await this.host.command("DEL", [this.keys.scheduleMeta + id]);
   }
 
   async tick(): Promise<void> {
     const now = Date.now();
-    const raw = await this.connection.command("ZRANGEBYSCORE", [
-      this.connection.keys.schedules,
+    const raw = await this.host.command("ZRANGEBYSCORE", [
+      this.keys.schedules,
       "-inf",
       String(now),
       "LIMIT",
@@ -167,8 +174,8 @@ export class RedisSchedules {
     ]);
     const ids = Array.isArray(raw) ? raw.map(String) : [];
     for (const id of ids) {
-      const values = await this.connection.command("HMGET", [
-        this.connection.keys.scheduleMeta + id,
+      const values = await this.host.command("HMGET", [
+        this.keys.scheduleMeta + id,
         "jobName",
         "cron",
         "timezone",
@@ -179,11 +186,11 @@ export class RedisSchedules {
         "submit",
       ]);
       if (!Array.isArray(values) || values[0] === null) {
-        await this.connection.command("ZREM", [this.connection.keys.schedules, id]);
+        await this.host.command("ZREM", [this.keys.schedules, id]);
         continue;
       }
       if (String(values[3]) !== "active") {
-        await this.connection.command("ZREM", [this.connection.keys.schedules, id]);
+        await this.host.command("ZREM", [this.keys.schedules, id]);
         continue;
       }
 
@@ -199,30 +206,31 @@ export class RedisSchedules {
         timezone,
         catchUp ? occurrence : now
       );
-      const occurrenceId = `${this.connection.name}:schedule:${id}:${occurrence}`;
+      const occurrenceId = `${this.queueName}:schedule:${id}:${occurrence}`;
 
       let accepted = false;
       try {
-        const handle = this.connection.submit(jobName, input, {
+        const handle = this.host.submit(jobName, input, {
           ...submit,
           id: occurrenceId,
         });
         await handle.accepted;
         accepted = true;
       } catch (cause) {
-        const error = toError(cause);
-        if (error.message.includes(`Job ID "${occurrenceId}" already exists`)) {
+        // Another worker reached this tick first. Its submission stands, so
+        // this one still advances the schedule rather than retrying forever.
+        if (cause instanceof DuplicateJobIdError) {
           accepted = true;
         } else {
-          this.connection.emit("error", error);
+          this.host.emit("error", toError(cause));
         }
       }
       if (!accepted) {
         continue;
       }
-      await this.connection.eval(
+      await this.host.eval(
         ADVANCE_SCHEDULE_SCRIPT,
-        [this.connection.keys.scheduleMeta, this.connection.keys.schedules],
+        [this.keys.scheduleMeta, this.keys.schedules],
         [id, String(occurrence), String(nextRunAt)]
       );
     }
@@ -245,19 +253,19 @@ class RedisScheduleHandleImpl implements RedisScheduleHandle {
   }
 
   async pause(): Promise<void> {
-    await this.owner.pauseSchedule(this.id);
+    await this.owner.pause(this.id);
   }
 
   async resume(): Promise<void> {
-    this.cachedNextRunAt = await this.owner.resumeSchedule(this.id);
+    this.cachedNextRunAt = await this.owner.resume(this.id);
   }
 
   async remove(): Promise<void> {
-    await this.owner.removeSchedule(this.id);
+    await this.owner.remove(this.id);
   }
 
   async refresh(): Promise<RedisScheduleSnapshot> {
-    const value = await this.owner.getSchedule(this.id);
+    const value = await this.owner.get(this.id);
     if (!value) {
       throw new Error(`Schedule "${this.id}" does not exist`);
     }

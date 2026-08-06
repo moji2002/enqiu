@@ -6,8 +6,8 @@ import type {
   KeyedConcurrencyOptions,
   RetryOptions,
 } from "../memory.js";
+import { JobValidationError } from "./job.js";
 import {
-  JobValidationError,
   definitionMarker,
   type JobDefinition,
   type JobHandler,

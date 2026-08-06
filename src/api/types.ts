@@ -17,7 +17,6 @@ export type { ScheduleHandle, ScheduleSnapshot } from "../driver.js";
 
 
 export const definitionMarker = Symbol("enqiu.job");
-export const reservedNames = new Set(["queue", "worker"]);
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": {
@@ -135,26 +134,6 @@ export type JobDefinition =
 
 export type JobDefinitions = Record<string, JobDefinition>;
 
-export function job<
-  const Schema extends StandardSchemaV1,
-  Output,
->(
-  definition: Omit<SchemaJobDefinition<Schema, Output>, typeof definitionMarker>
-): SchemaJobDefinition<Schema, Output> {
-  if (!definition || typeof definition !== "object") {
-    throw new TypeError("job() requires a definition object");
-  }
-  if (!isStandardSchema(definition.input)) {
-    throw new TypeError("job.input must implement Standard Schema");
-  }
-  if (typeof definition.run !== "function") {
-    throw new TypeError("job.run must be a function");
-  }
-  return Object.freeze({
-    ...definition,
-    [definitionMarker]: true as const,
-  });
-}
 
 type DefinitionInput<Definition> =
   Definition extends SchemaJobDefinition<infer Schema, unknown>
@@ -357,28 +336,4 @@ export interface NormalizedDefinition {
   policy: JobPolicyOptions<unknown>;
 }
 
-export class JobValidationError extends TypeError {
-  readonly issues: readonly StandardSchemaIssue[];
 
-  constructor(name: string, issues: readonly StandardSchemaIssue[]) {
-    super(
-      `Invalid input for job "${name}": ${
-        issues[0]?.message ?? "validation failed"
-      }`
-    );
-    this.name = "JobValidationError";
-    this.issues = issues;
-  }
-}
-
-function isStandardSchema(value: unknown): value is StandardSchemaV1 {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const standard = (value as Partial<StandardSchemaV1>)["~standard"];
-  return (
-    standard?.version === 1 &&
-    typeof standard.vendor === "string" &&
-    typeof standard.validate === "function"
-  );
-}

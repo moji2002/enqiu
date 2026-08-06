@@ -13,7 +13,9 @@ export default defineConfig({
       // unless ENQIU_TEST_REDIS_URL points at a server. Counting it while it is
       // skipped would report a figure the default suite never verifies, so it
       // joins the report exactly when its tests actually run.
-      exclude: process.env.ENQIU_TEST_REDIS_URL ? [] : ['src/redis.ts'],
+      exclude: process.env.ENQIU_TEST_REDIS_URL
+        ? []
+        : ['src/redis.ts', 'src/redis/**'],
       // Set just under the current numbers so a regression fails the build
       // without the suite going red on ordinary rounding. The Redis run covers
       // strictly more code, including a driver whose Lua-adjacent guards are

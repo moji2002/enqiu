@@ -137,7 +137,7 @@ The suite runs on Vitest with V8 coverage. `pnpm run check` runs both
 type-checks, the coverage-gated suite, and the build:
 
 ```bash
-pnpm run test            # 116 tests; 134 with a Redis server
+pnpm run test            # 117 tests; 135 with a Redis server
 pnpm run test:coverage   # same, with the coverage report and thresholds
 pnpm run check           # typecheck + typecheck:test + coverage + build
 ```
@@ -156,13 +156,13 @@ threshold for whichever mode is running:
 
 | Metric     | Default | Threshold | With Redis | Threshold |
 | ---------- | ------- | --------- | ---------- | --------- |
-| Statements | 96.42%  | 95%       | 95.02%     | 94%       |
-| Branches   | 91.36%  | 90%       | 86.53%     | 85%       |
-| Functions  | 93.69%  | 93%       | 93.10%     | 92%       |
-| Lines      | 96.42%  | 95%       | 95.02%     | 94%       |
+| Statements | 96.65%  | 95%       | 95.24%     | 94%       |
+| Branches   | 91.45%  | 90%       | 86.88%     | 85%       |
+| Functions  | 93.82%  | 93%       | 92.97%     | 92%       |
+| Lines      | 96.65%  | 95%       | 95.24%     | 94%       |
 
 `src/internal/` is at 100% on every metric. The Redis run covers strictly more
-code — it adds `src/redis.ts` at 93.09% — but that module's Lua-adjacent guards
+code — it adds the `src/redis/` modules — but that module's Lua-adjacent guards
 are hard to drive from the outside, which is why its branch bar sits lower.
 
 ## Redis

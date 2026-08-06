@@ -42,6 +42,25 @@ export class JobExpiredError extends Error {
   }
 }
 
+/**
+ * A job was submitted under an ID that already exists.
+ *
+ * Schedules rely on this being distinguishable: two workers reaching the same
+ * cron tick both submit under the same deterministic occurrence ID, and the
+ * loser must be able to tell "someone else already claimed this tick" from a
+ * real failure. Matching on the message text instead would break silently the
+ * day the wording changed, leaving the schedule stuck.
+ */
+export class DuplicateJobIdError extends Error {
+  readonly jobId: string;
+
+  constructor(jobId: string) {
+    super(`Job ID "${jobId}" already exists`);
+    this.name = "DuplicateJobIdError";
+    this.jobId = jobId;
+  }
+}
+
 export class QueueClosedError extends Error {
   constructor(name: string) {
     super(`Queue "${name}" is closed`);

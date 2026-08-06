@@ -1,4 +1,5 @@
 export {
+  DuplicateJobIdError,
   JobCancelledError,
   JobExpiredError,
   JobFailedError,

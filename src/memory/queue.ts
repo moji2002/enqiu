@@ -14,6 +14,7 @@ import {
 import { BinaryHeap } from "./heap.js";
 import { ExecutionPolicies } from "./policies.js";
 import {
+  DuplicateJobIdError,
   JobCancelledError,
   JobExpiredError,
   JobFailedError,
@@ -349,7 +350,7 @@ export class MemoryQueue<Jobs extends JobMap> {
       throw new TypeError("Job ID must not be empty");
     }
     if (this.records.has(id)) {
-      throw new Error(`Job ID "${id}" already exists`);
+      throw new DuplicateJobIdError(id);
     }
 
     const requestedRunAt = resolveRunAt(options.delay, now);

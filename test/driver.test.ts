@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { enqiu, type JobsApi, type JobDefinitions } from "../src/index.js";
+import {
+  DuplicateJobIdError,
+  enqiu,
+  type JobsApi,
+  type JobDefinitions,
+} from "../src/index.js";
 
 let open: Array<JobsApi<JobDefinitions>> = [];
 
@@ -254,5 +259,26 @@ describe("driver seam through the public API", () => {
     await jobs.work.bulk([1, 2, 3]);
     await jobs.worker.close({ drain: false });
     expect(jobs.worker.running).toBe(false);
+  });
+});
+
+describe("duplicate job IDs", () => {
+  it("reports a colliding ID with a catchable typed error", async () => {
+    const jobs = makeJobs({ work: async (n: number) => n }, { worker: false });
+    await jobs.work(1, { id: "fixed" });
+
+    // Schedules depend on telling "another worker already claimed this tick"
+    // from a real failure, so this must be matchable by type, not by message.
+    await expect(jobs.work(2, { id: "fixed" })).rejects.toBeInstanceOf(
+      DuplicateJobIdError
+    );
+    await expect(jobs.work(3, { id: "fixed" })).rejects.toMatchObject({
+      name: "DuplicateJobIdError",
+      jobId: "fixed",
+    });
+    // Still an Error carrying the old wording, so existing handling survives.
+    await expect(jobs.work(4, { id: "fixed" })).rejects.toThrow(
+      'Job ID "fixed" already exists'
+    );
   });
 });

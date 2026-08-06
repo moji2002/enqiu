@@ -7,6 +7,7 @@
 
 import { JobSerializationError, cloneJobValue } from "./codec.js";
 import {
+  DuplicateJobIdError,
   JobCancelledError,
   JobExpiredError,
   JobFailedError,
@@ -22,7 +23,8 @@ import {
   toAddOptions,
   validateInput,
 } from "./api/options.js";
-import { reservedNames } from "./api/types.js";
+/** Names the api object itself uses, so a job may not take them. */
+export const reservedNames = new Set(["queue", "worker"]);
 import type { JobContext as HandlerContext, JobSnapshot, JobStatus } from "./memory.js";
 import type {
   DriverHandlers,
@@ -55,6 +57,7 @@ import type {
 import type { QueueEventMap } from "./memory.js";
 
 export * from "./api/types.js";
+export { JobValidationError, job } from "./api/job.js";
 
 class PublicJobHandle<
   Output,
@@ -351,6 +354,7 @@ export function enqiu<const Definitions extends JobDefinitions>(
 
 
 export {
+  DuplicateJobIdError,
   JobCancelledError,
   JobExpiredError,
   JobFailedError,

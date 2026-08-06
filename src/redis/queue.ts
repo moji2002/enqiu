@@ -1,6 +1,7 @@
 /** The Redis-backed queue engine: claiming, execution, schedules and events. */
 
 import {
+  DuplicateJobIdError,
   JobCancelledError,
   JobExpiredError,
   JobFailedError,
@@ -537,11 +538,11 @@ export class RedisQueue<Jobs extends JobMap> {
   upsertSchedule(
     registration: RedisScheduleRegistration
   ): Promise<RedisScheduleHandle> {
-    return this.schedules.upsertSchedule(registration);
+    return this.schedules.upsert(registration);
   }
 
   getSchedule(id: string): Promise<RedisScheduleSnapshot | undefined> {
-    return this.schedules.getSchedule(id);
+    return this.schedules.get(id);
   }
 
   on<Event extends keyof RedisQueueEventMap>(
@@ -654,7 +655,7 @@ export class RedisQueue<Jobs extends JobMap> {
     const outcome = String(result[0]);
     const id = String(result[1]);
     if (outcome === "duplicate") {
-      throw new Error(`Job ID "${id}" already exists`);
+      throw new DuplicateJobIdError(id);
     }
     if (outcome === "deduplicated" || outcome === "debounced") {
       this.local.delete(record.id);
