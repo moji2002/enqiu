@@ -8,7 +8,6 @@ import {
   QueueClosedError,
 } from "../memory.js";
 import type {
-  AddOptions,
   JobContext,
   JobInput,
   JobLogEntry,
@@ -17,16 +16,12 @@ import type {
   JobOutput,
   JobSnapshot,
   JobStatus,
-  QueueEventMap,
-  QueueOptions,
   QueueStats,
   RateLimitOptions,
 } from "../memory.js";
 import {
-  errorFromSerialized,
   serializeError,
   toError,
-  type SerializedError,
 } from "../internal/errors.js";
 import {
   backoffFromOptions,
@@ -50,20 +45,15 @@ import {
   parseCron,
   validateTimeZone,
 } from "../cron.js";
-import { compact } from "../internal/object.js";
 import {
   applySnapshot,
-  snapshotForEvent,
   snapshotFromFields,
 } from "./snapshot.js";
 import type {
   ClaimedJob,
   NormalizedRedisRetry,
   RedisAddOptions,
-  RedisCommandClient,
-  RedisDriver,
   RedisDriverConfig,
-  RedisDriverOptions,
   RedisJob,
   RedisJobRecord,
   RedisListOptions,
@@ -77,7 +67,7 @@ import type {
 } from "./types.js";
 
 import { queueKeys } from "./keys.js";
-import { firstStreamEntryId, streamEntries } from "./stream.js";
+import { RedisEvents } from "./events.js";
 import {
   ADVANCE_SCHEDULE_SCRIPT,
   CANCEL_SCRIPT,
@@ -92,19 +82,6 @@ import {
   UPSERT_SCHEDULE_SCRIPT,
 } from "./scripts.js";
 
-import type {
-  DriverCleanupQuery,
-  DriverFactory,
-  DriverHandlers,
-  DriverJob,
-  DriverListPage,
-  DriverListQuery,
-  DriverQueueOptions,
-  DriverScheduleRegistration,
-  QueueDriver,
-  ScheduleHandle,
-  ScheduleSnapshot,
-} from "../driver.js";
 
 
 
@@ -121,18 +98,12 @@ export class RedisQueue<Jobs extends JobMap> {
   private readonly historyLimit: number;
   private readonly logLimit: number;
   private readonly keys: ReturnType<typeof queueKeys>;
-  private readonly local = new Map<string, RedisJobRecord>();
-  private readonly listeners = new Map<
-    keyof RedisQueueEventMap,
-    Set<(payload: never) => void>
-  >();
-  private readonly running = new Set<Promise<void>>();
+  private readonly local = new Map<string, RedisJobRecord>();  private readonly running = new Set<Promise<void>>();
+  private readonly events: RedisEvents;
 
   private started: boolean;
   private closed = false;
   private workerLoop: Promise<void> | undefined;
-  private eventLoop: Promise<void> | undefined;
-  private eventCursor: string | undefined;
   private sequence = 0;
 
   constructor(handlers: Jobs, options: RedisQueueOptions) {
@@ -152,6 +123,13 @@ export class RedisQueue<Jobs extends JobMap> {
     this.logLimit = options.logLimit ?? 100;
     this.started = options.autoStart ?? true;
     this.keys = queueKeys(this.driver.prefix, this.name);
+    this.events = new RedisEvents({
+      command: (command, arguments_) => this.command(command, arguments_),
+      getSnapshot: (id) => this.get(id),
+      eventsKey: this.keys.events,
+      pollInterval: this.driver.pollInterval,
+      isClosed: () => this.closed,
+    });
 
     positiveIntegerOrInfinity("concurrency", this.concurrency);
     // The in-memory driver accepts 0 here. Redis trims its terminal lists with
@@ -240,7 +218,7 @@ export class RedisQueue<Jobs extends JobMap> {
       record.status = "failed";
       record.error = serializeError(error);
       record.finishedAt = Date.now();
-      this.emit("error", error);
+      this.events.emit("error", error);
       throw error;
     });
     // Mark the rejection handled until a consumer reads `accepted` or `result`.
@@ -663,25 +641,14 @@ export class RedisQueue<Jobs extends JobMap> {
     this.closed = true;
     await Promise.allSettled(this.running);
     await this.workerLoop;
-    await this.eventLoop;
+    await this.events.drain();
   }
 
   on<Event extends keyof RedisQueueEventMap>(
     event: Event,
     listener: (payload: RedisQueueEventMap[Event]) => void
   ): () => void {
-    let group = this.listeners.get(event);
-    if (!group) {
-      group = new Set();
-      this.listeners.set(event, group);
-    }
-    group.add(listener as (payload: never) => void);
-    if (event !== "error" && event !== "idle") {
-      this.ensureEventLoop();
-    }
-    return () => {
-      group?.delete(listener as (payload: never) => void);
-    };
+    return this.events.on(event, listener);
   }
 
   /** @internal */
@@ -841,7 +808,7 @@ export class RedisQueue<Jobs extends JobMap> {
         });
         this.running.add(execution);
       } catch (cause) {
-        this.emit("error", toError(cause));
+        this.events.emit("error", toError(cause));
         await sleep(Math.max(1000, this.driver.pollInterval));
       }
     }
@@ -972,7 +939,7 @@ export class RedisQueue<Jobs extends JobMap> {
         if (error.message.includes(`Job ID "${occurrenceId}" already exists`)) {
           accepted = true;
         } else {
-          this.emit("error", error);
+          this.events.emit("error", error);
         }
       }
       if (!accepted) {
@@ -1024,8 +991,8 @@ export class RedisQueue<Jobs extends JobMap> {
             "progress",
             encode(value),
           ])
-            .then(() => this.publishEvent("progress", claimed.id))
-            .catch((cause) => this.emit("error", toError(cause)));
+            .then(() => this.events.publish("progress", claimed.id))
+            .catch((cause) => this.events.emit("error", toError(cause)));
         },
         log: (entry: JobLogEntry): void => {
           if (this.logLimit === 0) {
@@ -1040,8 +1007,8 @@ export class RedisQueue<Jobs extends JobMap> {
             "logs",
             encode(local.logs),
           ])
-            .then(() => this.publishEvent("log", claimed.id))
-            .catch((cause) => this.emit("error", toError(cause)));
+            .then(() => this.events.publish("log", claimed.id))
+            .catch((cause) => this.events.emit("error", toError(cause)));
         },
       };
       const execution = Promise.resolve(handler(claimed.input, context));
@@ -1112,7 +1079,7 @@ export class RedisQueue<Jobs extends JobMap> {
         controller.abort(new JobCancelledError(job.id, "Job ownership lost"));
       }
     } catch (cause) {
-      this.emit("error", toError(cause));
+      this.events.emit("error", toError(cause));
     }
   }
 
@@ -1237,115 +1204,6 @@ export class RedisQueue<Jobs extends JobMap> {
     };
   }
 
-  private ensureEventLoop(): void {
-    if (this.eventLoop || this.closed) {
-      return;
-    }
-    this.eventLoop = this.readEvents().finally(() => {
-      this.eventLoop = undefined;
-    });
-  }
-
-  private async readEvents(): Promise<void> {
-    if (this.eventCursor === undefined) {
-      const latest = await this.command("XREVRANGE", [
-        this.keys.events,
-        "+",
-        "-",
-        "COUNT",
-        "1",
-      ]);
-      this.eventCursor = firstStreamEntryId(latest) ?? "0-0";
-    }
-    while (!this.closed && this.hasEventListeners()) {
-      try {
-        const result = await this.command("XREAD", [
-          "COUNT",
-          "100",
-          "STREAMS",
-          this.keys.events,
-          this.eventCursor,
-        ]);
-        const entries = streamEntries(result);
-        for (const entry of entries) {
-          this.eventCursor = entry.id;
-          await this.dispatchRemoteEvent(entry.fields);
-        }
-      } catch (cause) {
-        this.emit("error", toError(cause));
-      }
-      await sleep(this.driver.pollInterval);
-    }
-  }
-
-  private hasEventListeners(): boolean {
-    for (const [event, listeners] of this.listeners) {
-      if (event !== "error" && event !== "idle" && listeners.size > 0) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private async dispatchRemoteEvent(
-    fields: ReadonlyMap<string, string>
-  ): Promise<void> {
-    const type = fields.get("type") as keyof RedisQueueEventMap | undefined;
-    const id = fields.get("id");
-    if (!type || !id || type === "error" || type === "idle") {
-      return;
-    }
-    const value = await this.get(id);
-    if (!value) {
-      return;
-    }
-    const at = Number(fields.get("at") ?? Date.now());
-    const snapshot = snapshotForEvent(type, value, at);
-    if (type === "retry") {
-      const error = errorFromSerialized(snapshot.error);
-      this.emit("retry", {
-        job: snapshot,
-        error,
-        delay: Math.max(0, snapshot.runAt - at),
-      });
-      return;
-    }
-    if (type === "log") {
-      const entry = snapshot.logs?.at(-1);
-      if (entry) {
-        this.emit("log", { job: snapshot, entry });
-      }
-      return;
-    }
-    if (type === "recovered") {
-      this.emit("recovered", snapshot);
-      return;
-    }
-    this.emit(
-      type as Exclude<
-        keyof RedisQueueEventMap,
-        "error" | "idle" | "retry" | "log" | "recovered"
-      >,
-      snapshot
-    );
-  }
-
-  private async publishEvent(type: string, id: string): Promise<void> {
-    await this.command("XADD", [
-      this.keys.events,
-      "MAXLEN",
-      "~",
-      "10000",
-      "*",
-      "type",
-      type,
-      "id",
-      id,
-      "at",
-      String(Date.now()),
-    ]);
-  }
-
   private async command(
     command: string,
     arguments_: string[]
@@ -1370,23 +1228,6 @@ export class RedisQueue<Jobs extends JobMap> {
       ...keys,
       ...arguments_,
     ]);
-  }
-
-  private emit<Event extends keyof RedisQueueEventMap>(
-    event: Event,
-    payload: RedisQueueEventMap[Event]
-  ): void {
-    const group = this.listeners.get(event);
-    if (!group) {
-      return;
-    }
-    for (const listener of group) {
-      try {
-        listener(payload as never);
-      } catch {
-        // Observers cannot interrupt queue processing.
-      }
-    }
   }
 
   private assertOpen(): void {

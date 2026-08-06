@@ -1,11 +1,8 @@
 /** The public vocabulary of `enqiu()`, plus the `job()` definition helper. */
 
 import type {
-  AddOptions,
-  JobContext as HandlerContext,
   JobSnapshot,
   JobStatus,
-  KeyedConcurrencyOptions,
   MaybePromise,
   QueueEventMap,
   QueueStats,
@@ -13,10 +10,6 @@ import type {
 } from "../memory.js";
 import type {
   DriverFactory,
-  DriverHandlers,
-  DriverJob,
-  DriverQueueOptions,
-  QueueDriver,
   ScheduleHandle,
 } from "../driver.js";
 

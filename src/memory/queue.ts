@@ -25,7 +25,6 @@ import type {
   BackoffStrategy,
   CleanupOptions,
   CloseOptions,
-  DebounceOptions,
   Job,
   JobContext,
   JobInput,

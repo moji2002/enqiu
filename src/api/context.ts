@@ -2,24 +2,8 @@
 
 import { cloneJobValue } from "../codec.js";
 import type {
-  AddOptions,
   JobContext as HandlerContext,
-  JobSnapshot,
-  JobStatus,
-  KeyedConcurrencyOptions,
-  MaybePromise,
-  QueueEventMap,
-  QueueStats,
-  RetryOptions,
 } from "../memory.js";
-import type {
-  DriverFactory,
-  DriverHandlers,
-  DriverJob,
-  DriverQueueOptions,
-  QueueDriver,
-  ScheduleHandle,
-} from "../driver.js";
 import type {
   JobContext,
   JobLogger,
