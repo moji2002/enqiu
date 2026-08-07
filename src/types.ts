@@ -133,31 +133,41 @@ export type JobDefinition =
 
 export type JobDefinitions = Record<string, JobDefinition>;
 
+/**
+ * Everything inferred from one definition, worked out once.
+ *
+ * A schema job and a bare handler differ in four derived facts, and writing
+ * each as its own conditional meant restating "which of the two is this" four
+ * times. They are not independent: a third form of definition would have to be
+ * added to all of them or to none.
+ *
+ * `input` is what a caller passes and `runInput` is what the handler receives.
+ * They differ only for a schema that transforms — `z.string().transform(Number)`
+ * takes a string and hands the handler a number.
+ */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type DefinitionInput<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, any>
-    ? InferSchemaInput<Schema>
-    : Definition extends JobHandler<infer Input, unknown, string>
-      ? Input
-      : never;
-
-type DefinitionRunInput<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, any>
-    ? InferSchemaOutput<Schema>
-    : Definition extends JobHandler<infer Input, unknown, string>
-      ? Input
-      : never;
-
-type DefinitionOutput<Definition> =
-  Definition extends SchemaJobDefinition<any, infer Output>
-    ? Awaited<Output>
-    : Definition extends JobHandler<unknown, infer Output, string>
-      ? Awaited<Output>
-      : never;
-
-type DefinitionSchema<Definition> =
-  Definition extends SchemaJobDefinition<infer Schema, any> ? Schema : undefined;
+type DefinitionShape<Definition> =
+  Definition extends SchemaJobDefinition<infer Schema, infer Output>
+    ? {
+        input: InferSchemaInput<Schema>;
+        runInput: InferSchemaOutput<Schema>;
+        output: Awaited<Output>;
+        schema: Schema;
+      }
+    : Definition extends JobHandler<infer Input, infer Output, string>
+      ? {
+          input: Input;
+          runInput: Input;
+          output: Awaited<Output>;
+          schema: undefined;
+        }
+      : { input: never; runInput: never; output: never; schema: undefined };
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+type DefinitionInput<Definition> = DefinitionShape<Definition>["input"];
+type DefinitionRunInput<Definition> = DefinitionShape<Definition>["runInput"];
+type DefinitionOutput<Definition> = DefinitionShape<Definition>["output"];
+type DefinitionSchema<Definition> = DefinitionShape<Definition>["schema"];
 
 export interface SubmitOptions {
   id?: string;

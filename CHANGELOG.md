@@ -66,7 +66,7 @@ would have had if it had been a wrapper from the start.
   BullMQ vocabulary mapping is pure and now has its own suite: a run without
   `ENQIU_TEST_REDIS_URL` verifies something instead of nothing, and holds
   `mapping.ts` and `serialize.ts` to their own coverage thresholds.
-- 91 tests, 98% statements and 91% branches against a real Redis; 45 of them
+- 92 tests, 98% statements and 91% branches against a real Redis; 45 of them
   need no server at all.
 - Telemetry has one module that owns the event vocabulary and the envelope.
   The names were inline string literals at three sites across two files, with

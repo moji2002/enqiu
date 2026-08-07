@@ -132,6 +132,25 @@ describeRedis("enqiu over BullMQ", () => {
       expect(seen).toEqual(["work:a:1"]);
     });
 
+    it("exposes each job's own schema, and nothing for a bare handler", async () => {
+      const email = z.object({ to: z.string() });
+      const { jobs } = make(
+        {
+          sendEmail: job({ input: email, run: async (input) => input }),
+          ping: async (n: number) => n,
+        },
+        { worker: false }
+      );
+
+      // The same object, so an HTTP route can validate against it without
+      // redefining the type — the reason this is on the public surface.
+      expect(jobs.sendEmail.input).toBe(email);
+      expectTypeOf(jobs.sendEmail.input).toEqualTypeOf<typeof email>();
+
+      expect(jobs.ping.input).toBeUndefined();
+      expectTypeOf(jobs.ping.input).toEqualTypeOf<undefined>();
+    });
+
     it("reserves no job names at all", async () => {
       // The queue and worker controls sit beside your jobs rather than among
       // them, so none of their names is taken.

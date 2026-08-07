@@ -201,9 +201,7 @@ class Handle<Output, Input, Name extends string>
 
 /** The shared parts, named once so each API object can take only these. */
 interface Runtime {
-  readonly queueName: string;
   readonly queue: Queue;
-  readonly worker: Worker | undefined;
   readonly events: QueueEventStream;
   readonly markers: CancellationMarkers;
   readonly store: JobStore;
@@ -555,9 +553,7 @@ export function enqiu<const Definitions extends JobDefinitions>(
   const store = new JobStore(queue, events, markers, worker, telemetry);
 
   const runtime: Runtime = {
-    queueName,
     queue,
-    worker,
     events,
     markers,
     store,
