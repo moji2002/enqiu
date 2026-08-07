@@ -127,7 +127,6 @@ export type HandlerJobDefinition<Input = unknown, Output = unknown> =
  * real schema and collapses the inferred API to `unknown`.
  */
 export type JobDefinition =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   | SchemaJobDefinition<any, any>
   | HandlerJobDefinition<never, unknown>;
 
@@ -145,7 +144,6 @@ export type JobDefinitions = Record<string, JobDefinition>;
  * They differ only for a schema that transforms — `z.string().transform(Number)`
  * takes a string and hands the handler a number.
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type DefinitionShape<Definition> =
   Definition extends SchemaJobDefinition<infer Schema, infer Output>
     ? {
@@ -162,7 +160,6 @@ type DefinitionShape<Definition> =
           schema: undefined;
         }
       : { input: never; runInput: never; output: never; schema: undefined };
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 type DefinitionInput<Definition> = DefinitionShape<Definition>["input"];
 type DefinitionRunInput<Definition> = DefinitionShape<Definition>["runInput"];

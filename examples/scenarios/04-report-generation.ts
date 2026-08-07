@@ -17,6 +17,7 @@ import {
   heading,
   makeJobs,
   note,
+  sleep,
   step,
 } from "./_harness.js";
 
@@ -34,7 +35,7 @@ const { jobs, close } = makeJobs({
     run: async ({ rows }, context) => {
       context.log.info("report started", { rows });
       for (let done = 1; done <= rows; done += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await sleep(5);
         await context.reportProgress({
           completed: done,
           total: rows,

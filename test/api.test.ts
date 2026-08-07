@@ -56,6 +56,13 @@ describeRedis("enqiu over BullMQ", () => {
     return instance;
   };
 
+  // The overwhelmingly common setup: one echo job, usually with no worker.
+  // Spelling it out at every call site buried the tests that are actually
+  // special — the two sharing a queue name, and the one with concurrency.
+  const echo = { work: async (n: number) => n };
+  const producer = (options: Partial<Omit<EnqiuOptions, "connection">> = {}) =>
+    make(echo, { worker: false, ...options });
+
   beforeEach(() => {
     prefix = `enqiu-test:${randomUUID()}`;
     open = [];
@@ -298,7 +305,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("reuses a job for a repeated idempotency key", async () => {
-      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = producer();
       const first = await jobs.work(1, { idempotencyKey: "once" });
       const second = await jobs.work(2, { idempotencyKey: "once" });
       expect(second.id).toBe(first.id);
@@ -307,7 +314,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("submits in bulk and honours explicit ids", async () => {
-      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = producer();
       const handles = await jobs.work.bulk([1, 2, 3], { ids: ["a", "b", "c"] });
       expect(handles.map((h) => h.id)).toEqual(["a", "b", "c"]);
       await expect(jobs.work.bulk([1], { ids: ["x", "y"] })).rejects.toThrow(
@@ -316,7 +323,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("delays a job and reports it as scheduled", async () => {
-      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = producer();
       const handle = await jobs.work(1, { delay: 30_000 });
       expect((await handle.refresh()).status).toBe("scheduled");
     });
@@ -324,7 +331,7 @@ describeRedis("enqiu over BullMQ", () => {
 
   describe("queue and worker control", () => {
     it("reports stats whose parts sum to the total", async () => {
-      const { jobs, queue } = make({ work: async (n: number) => n });
+      const { jobs, queue } = make(echo);
       await jobs.work.bulk([1, 2, 3]);
       await queue.onIdle();
       const stats = await queue.stats();
@@ -339,10 +346,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("lists jobs and reads one back by id", async () => {
-      const { jobs, queue } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { jobs, queue } = producer();
       const handle = await jobs.work(7);
       const page = await queue.list({ status: "queued", limit: 10 });
       expect(page.jobs.map((j) => j.id)).toContain(handle.id);
@@ -357,10 +361,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("pages through a status without skipping or repeating a job", async () => {
-      const { jobs, queue } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { jobs, queue } = producer();
       await jobs.work.bulk([1, 2, 3, 4, 5]);
       // A prioritized job is queued too, and lives in a different Redis
       // structure — which is exactly what a single-number cursor got wrong.
@@ -384,7 +385,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("cancels a job that has not started", async () => {
-      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = producer();
       const handle = await jobs.work(1);
       await expect(handle.cancel()).resolves.toBe(true);
       expect((await handle.refresh()).status).toBe("cancelled");
@@ -418,7 +419,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("pauses and resumes the worker", async () => {
-      const { jobs, worker } = make({ work: async (n: number) => n });
+      const { jobs, worker } = make(echo);
       expect(worker.running).toBe(true);
       await worker.pause();
       expect(worker.running).toBe(false);
@@ -428,21 +429,15 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("refuses to start a worker on a producer-only queue", async () => {
-      const { worker } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { worker } = producer();
       await expect(worker.start()).rejects.toThrow("worker: false");
       expect(worker.running).toBe(false);
     });
 
     it("closes the whole instance, worker or not", async () => {
-      const producer = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
-      await producer.close();
-      await expect(producer.jobs.work(1)).rejects.toBeInstanceOf(
+      const instance = producer();
+      await instance.close();
+      await expect(instance.jobs.work(1)).rejects.toBeInstanceOf(
         QueueClosedError
       );
     });
@@ -559,7 +554,7 @@ describeRedis("enqiu over BullMQ", () => {
 
   describe("event subscription", () => {
     it("delivers lifecycle events to subscribers", async () => {
-      const { jobs, queue } = make({ work: async (n: number) => n });
+      const { jobs, queue } = make(echo);
       const seen: string[] = [];
       const off = queue.on("succeeded", (s) => seen.push(`succeeded:${s.id}`));
       queue.on("added", (s) => seen.push(`added:${s.id}`));
@@ -648,16 +643,10 @@ describeRedis("enqiu over BullMQ", () => {
 
     it("records a cancellation durably, so another process sees it", async () => {
       const name = `shared-${randomUUID()}`;
-      const producer = make({ work: async (n: number) => n }, {
-        name,
-        worker: false,
-      });
-      const observer = make({ work: async (n: number) => n }, {
-        name,
-        worker: false,
-      });
+      const source = producer({ name });
+      const observer = producer({ name });
 
-      const handle = await producer.jobs.work(1);
+      const handle = await source.jobs.work(1);
       expect(await handle.cancel("not needed")).toBe(true);
 
       // A different instance, with no in-process memory of the cancellation.
@@ -667,10 +656,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("prunes markers once their jobs are old enough to clean", async () => {
-      const { jobs, queue } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { jobs, queue } = producer();
       const handle = await jobs.work(1);
       await handle.cancel();
       expect((await queue.get(handle.id))?.status).toBe("cancelled");
@@ -680,11 +666,20 @@ describeRedis("enqiu over BullMQ", () => {
       expect(await queue.get(handle.id)).toBeUndefined();
     });
 
+    it("cleans every state a status is made of", async () => {
+      const { jobs, queue } = producer();
+      await jobs.work(1);
+      await jobs.work(2, { priority: "high" });
+      expect((await queue.stats()).queued).toBe(2);
+
+      // "queued" spans waiting and prioritized. Cleaning only the first left
+      // the prioritized job behind and reported success.
+      expect(await queue.cleanup({ status: "queued" })).toHaveLength(2);
+      expect((await queue.stats()).queued).toBe(0);
+    });
+
     it("has nothing to list or clean for a status BullMQ does not have", async () => {
-      const { jobs, queue } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { jobs, queue } = producer();
       await jobs.work(1);
       expect((await queue.list({ status: "cancelled" })).jobs).toEqual([]);
       expect(await queue.cleanup({ status: "cancelled" })).toEqual([]);
@@ -729,23 +724,17 @@ describeRedis("enqiu over BullMQ", () => {
 
   describe("the BullMQ objects underneath", () => {
     it("exposes them", async () => {
-      const producer = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
-      expect(producer.bull.queue.name).toBeTypeOf("string");
-      expect(typeof producer.bull.queue.getJobCounts).toBe("function");
-      expect(producer.bull.worker).toBeUndefined();
+      const instance = producer();
+      expect(instance.bull.queue.name).toBeTypeOf("string");
+      expect(typeof instance.bull.queue.getJobCounts).toBe("function");
+      expect(instance.bull.worker).toBeUndefined();
 
-      const withWorker = make({ work: async (n: number) => n });
+      const withWorker = make(echo);
       expect(typeof withWorker.bull.worker?.run).toBe("function");
     });
 
     it("reports itself closed when the BullMQ queue is closed underneath", async () => {
-      const { jobs, bull } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { jobs, bull } = producer();
       await bull.queue.close();
       // Read from BullMQ rather than a flag maintained alongside, so the two
       // cannot drift apart.
@@ -753,7 +742,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("stops reporting a worker as running once BullMQ pauses it", async () => {
-      const { worker, bull } = make({ work: async (n: number) => n });
+      const { worker, bull } = make(echo);
       expect(worker.running).toBe(true);
       await bull.worker?.pause();
       expect(worker.running).toBe(false);
@@ -781,10 +770,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("rejects out-of-range queue arguments", async () => {
-      const { jobs, queue } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { jobs, queue } = producer();
       await expect(queue.setConcurrency(0)).rejects.toThrow(
         "concurrency must be a positive integer"
       );
@@ -797,7 +783,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("accepts every documented submit option shape", async () => {
-      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = producer();
       const byDate = await jobs.work(1, {
         delay: new Date(Date.now() + 60_000),
       });
@@ -818,10 +804,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("lists every status without complaint", async () => {
-      const { queue } = make(
-        { work: async (n: number) => n },
-        { worker: false }
-      );
+      const { queue } = producer();
       for (const status of [
         "queued",
         "scheduled",
@@ -834,7 +817,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("exposes name and input on the handle, and resumes a paused worker", async () => {
-      const { jobs, worker } = make({ work: async (n: number) => n });
+      const { jobs, worker } = make(echo);
       const handle = await jobs.work(9);
       expect(handle.name).toBe("work");
       expect(handle.input).toBe(9);

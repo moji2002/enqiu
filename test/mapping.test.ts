@@ -10,10 +10,10 @@ import type { Job as BullJob } from "bullmq";
 import { describe, expect, it } from "vitest";
 import {
   bullStates,
-  cleanTypeFor,
   decodeCursor,
   encodeCursor,
   everyState,
+  isFinished,
   mergePage,
   queueEventMap,
   toJobsOptions,
@@ -71,15 +71,14 @@ describe("status table", () => {
 
   it("gives cancelled no BullMQ state to list or clean", () => {
     expect(bullStates.cancelled).toEqual([]);
-    expect(cleanTypeFor("cancelled")).toBeUndefined();
   });
 
-  it("cleans each status through a type BullMQ accepts", () => {
-    expect(cleanTypeFor("queued")).toBe("waiting");
-    expect(cleanTypeFor("scheduled")).toBe("delayed");
-    expect(cleanTypeFor("running")).toBe("active");
-    expect(cleanTypeFor("succeeded")).toBe("completed");
-    expect(cleanTypeFor("failed")).toBe("failed");
+  it("knows the two states a job can no longer leave", () => {
+    expect(isFinished("completed")).toBe(true);
+    expect(isFinished("failed")).toBe(true);
+    for (const state of ["waiting", "prioritized", "active", "delayed", "unknown"]) {
+      expect(isFinished(state)).toBe(false);
+    }
   });
 
   it("names a BullMQ event for every Enqiu event", () => {

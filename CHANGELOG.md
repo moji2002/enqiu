@@ -53,7 +53,9 @@ would have had if it had been a wrapper from the start.
   "unknown"`, `input: undefined`, `attempt: 0`. It now stores the snapshot taken
   before removal.
 - **`cleanup({ status })` cleaned the wrong jobs** for every status but
-  `"failed"`, so `{ status: "running" }` deleted successes.
+  `"failed"`, so `{ status: "running" }` deleted successes. It now cleans every
+  state a status is made of — cleaning only the first left prioritized jobs
+  behind and reported success.
 - **`EnqiuOptions.retry` had no effect**, though its neighbour `timeout` did.
 - **Cancellation markers used ioredis' positional `HSET`**, which would throw on
   the node-redis and Bun clients BullMQ 6 adapts.
@@ -66,8 +68,19 @@ would have had if it had been a wrapper from the start.
   BullMQ vocabulary mapping is pure and now has its own suite: a run without
   `ENQIU_TEST_REDIS_URL` verifies something instead of nothing, and holds
   `mapping.ts` and `serialize.ts` to their own coverage thresholds.
-- 92 tests, 98% statements and 91% branches against a real Redis; 45 of them
+- 93 tests, 99% statements and 91% branches against a real Redis; 45 of them
   need no server at all.
+- The cancellation marker stores the finished snapshot itself rather than a
+  reason beside a copy of one. It was three records of one event that had to
+  agree, reassembled differently by each of the two readers.
+- `AbortSignal.any` replaces twelve lines of hand-rolled signal forwarding.
+- `queue.get()` and `handle.refresh()` fetch the job and its state together
+  instead of one after the other — `getJobState` needs only the id, so waiting
+  for the job first spent a round trip for nothing (~300µs on a local Redis).
+- `handle.result` checks the stored failure envelope before reading the
+  cancellation marker: the envelope is free and the marker is a round trip.
+- The benchmark uses BullMQ's own `removeAllQueueData` rather than `KEYS`,
+  which is O(keyspace) and blocks the server being timed.
 - Telemetry has one module that owns the event vocabulary and the envelope.
   The names were inline string literals at three sites across two files, with
   `{ type, queue, timestamp, fields }` rebuilt by hand at each — adding an

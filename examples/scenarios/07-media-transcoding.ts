@@ -9,7 +9,15 @@
 
 import { z } from "zod";
 import { job } from "../../src/index.js";
-import { expect, finish, heading, makeJobs, note, step } from "./_harness.js";
+import {
+  expect,
+  finish,
+  heading,
+  makeJobs,
+  note,
+  sleep,
+  step,
+} from "./_harness.js";
 
 heading(
   "7. Media transcoding pool",
@@ -29,7 +37,7 @@ const { jobs, queue, worker, close } = makeJobs(
         peak = Math.max(peak, concurrent);
         order.push(asset);
         for (let done = 1; done <= 3; done += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          await sleep(5);
           await context.reportProgress({ completed: done, total: 3 });
         }
         concurrent -= 1;

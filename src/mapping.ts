@@ -7,7 +7,12 @@
  * be four hand-written mappings, and they disagreed with each other.
  */
 
-import type { Job as BullJob, JobState, JobsOptions } from "bullmq";
+import type {
+  Job as BullJob,
+  FinishedStatus,
+  JobState,
+  JobsOptions,
+} from "bullmq";
 import type { QueueEventsListener } from "bullmq";
 import { decodeFailure, failureToError } from "./errors.js";
 import type {
@@ -47,14 +52,9 @@ export function toStatus(state: string): JobStatus {
   return statusByState.get(state) ?? "queued";
 }
 
-/**
- * The single type `Queue.clean` accepts for a status.
- *
- * One per call is BullMQ's limit, so a status backed by several states cleans
- * its first. `cancelled` has none, and cleans only its markers.
- */
-export function cleanTypeFor(status: JobStatus) {
-  return bullStates[status][0];
+/** The two states a job can no longer leave — BullMQ names the pair too. */
+export function isFinished(state: string): state is FinishedStatus {
+  return state === "completed" || state === "failed";
 }
 
 /**

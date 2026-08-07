@@ -29,10 +29,10 @@ import {
 } from "./errors.js";
 import {
   bullStates,
-  cleanTypeFor,
   decodeCursor,
   encodeCursor,
   everyState,
+  isFinished,
   mergePage,
   queueEventMap,
   toJobsOptions,
@@ -49,7 +49,6 @@ import type {
   JobCallable,
   JobDefinitions,
   JobHandle,
-  JobListPage,
   JobListQuery,
   JobSnapshot,
   JobsApi,
@@ -83,36 +82,24 @@ class JobStore {
     private readonly telemetry: Telemetry
   ) {}
 
-  /** `state` skips a round trip when the caller already knows it. */
+  /**
+   * `state` says what an event already proved, so the state need not be re-read.
+   *
+   * The job and its state are fetched together: `getJobState` needs only the id,
+   * so waiting for the job first was a round trip spent for nothing.
+   */
   async snapshot(id: string, state?: JobState): Promise<JobSnapshot | undefined> {
-    const bull = await this.queue.getJob(id);
-    if (!bull) {
-      // The job is gone, so the marker is all there is — and it kept the
-      // snapshot taken before the removal rather than a stub.
-      const tombstone = await this.markers.read(id);
-      return tombstone
-        ? {
-            ...tombstone.snapshot,
-            status: "cancelled",
-            finishedAt: tombstone.at,
-            error: { name: "JobCancelledError", message: tombstone.reason },
-          }
-        : undefined;
-    }
-
-    const settled = state ?? (await bull.getState());
+    const [bull, settled] = await Promise.all([
+      this.queue.getJob(id),
+      state ?? this.queue.getJobState(id),
+    ]);
+    // Gone means the marker is all there is — and the marker is a snapshot.
+    if (!bull) return this.markers.read(id);
     // An aborted job settles as failed; the marker is what distinguishes a
     // deliberate cancellation from one that simply threw.
     if (settled === "failed") {
-      const tombstone = await this.markers.read(id);
-      if (tombstone) {
-        const snapshot = toSnapshot(bull, "cancelled");
-        snapshot.error = {
-          name: "JobCancelledError",
-          message: tombstone.reason,
-        };
-        return snapshot;
-      }
+      const cancelled = await this.markers.read(id);
+      if (cancelled) return cancelled;
     }
     return toSnapshot(bull, toStatus(settled));
   }
@@ -122,10 +109,12 @@ class JobStore {
     try {
       return await bull.waitUntilFinished(await this.events.open());
     } catch (cause) {
-      if (await this.markers.read(id)) throw new JobCancelledError(id);
       const error = toError(cause);
+      // The free check first: a stored envelope needs no round trip to read.
       const failure = decodeFailure(error.message);
       if (failure) throw failureToError(failure);
+      const cancelled = await this.markers.read(id);
+      if (cancelled) throw new JobCancelledError(id, cancelled.error?.message);
       throw new JobFailedError(id, error.message, { cause: error });
     }
   }
@@ -133,13 +122,14 @@ class JobStore {
   async cancel(bull: BullJob, reason: string): Promise<boolean> {
     const id = String(bull.id);
     const state = await bull.getState();
-    if (state === "completed" || state === "failed" || state === "unknown") {
-      return false;
-    }
+    if (state === "unknown" || isFinished(state)) return false;
 
     // Taken before anything is destroyed: once the job is removed this is the
-    // only record that it ever existed, let alone what it carried.
+    // only record that it ever existed, let alone what it carried. Finished
+    // here, so a reader has nothing left to reassemble.
     const snapshot = toSnapshot(bull, "cancelled");
+    snapshot.finishedAt = Date.now();
+    snapshot.error = { name: "JobCancelledError", message: reason };
 
     if (state === "active") {
       // A running job cannot be removed, but this process's worker can abort
@@ -154,7 +144,7 @@ class JobStore {
       }
     }
 
-    await this.markers.write(id, { reason, at: Date.now(), snapshot });
+    await this.markers.write(id, snapshot);
     this.telemetry.jobCancelled(id, reason);
     return true;
   }
@@ -297,11 +287,7 @@ function createJobCallable(
     return scheduleHandle(id, name, runtime.queue);
   };
 
-  return Object.assign(submit, {
-    bulk,
-    schedule,
-    input: definition.schema,
-  }) as unknown as AnyCallable;
+  return Object.assign(submit, { bulk, schedule, input: definition.schema });
 }
 
 function scheduleHandle(
@@ -344,8 +330,7 @@ function createQueueApi<Definitions extends JobDefinitions>(
         throw new RangeError("list.limit must be an integer between 1 and 1000");
       }
       const states = bullStates[query.status];
-      const page: JobListPage<AnyJobSnapshot<Definitions>> = { jobs: [] };
-      if (states.length === 0) return page;
+      if (states.length === 0) return { jobs: [] };
 
       // One range per state, each with its own offset, because BullMQ applies
       // a range to every state separately.
@@ -361,11 +346,12 @@ function createQueueApi<Definitions extends JobDefinitions>(
       );
 
       const { items, next } = mergePage(pages, limit);
-      page.jobs = items.map((bull) =>
+      const jobs = items.map((bull) =>
         toSnapshot(bull, query.status)
       ) as AnyJobSnapshot<Definitions>[];
-      if (items.length === limit) page.cursor = encodeCursor(next);
-      return page;
+      return items.length === limit
+        ? { jobs, cursor: encodeCursor(next) }
+        : { jobs };
     },
 
     stats: async (): Promise<QueueStats> => {
@@ -399,9 +385,7 @@ function createQueueApi<Definitions extends JobDefinitions>(
       const bull = await queue.getJob(id);
       if (!bull) throw new Error(`Job "${id}" cannot be redriven`);
       const state = await bull.getState();
-      if (state !== "failed" && state !== "completed") {
-        throw new Error(`Job "${id}" cannot be redriven`);
-      }
+      if (!isFinished(state)) throw new Error(`Job "${id}" cannot be redriven`);
       await bull.retry(state);
       return new Handle(bull, store, false);
     },
@@ -411,12 +395,16 @@ function createQueueApi<Definitions extends JobDefinitions>(
       if (!Number.isFinite(olderThan) || olderThan < 0) {
         throw new RangeError("olderThan must be a non-negative finite number");
       }
-      const type = query.status ? cleanTypeFor(query.status) : "completed";
-      const removed = type
-        ? await queue.clean(olderThan, query.limit ?? 1000, type)
-        : [];
+      // Every state the status is made of: cleaning only the first left
+      // prioritized jobs behind and reported success.
+      const limit = query.limit ?? 1000;
+      const removed = await Promise.all(
+        bullStates[query.status ?? "succeeded"].map((state) =>
+          queue.clean(olderThan, limit, state)
+        )
+      );
       await markers.prune(Date.now() - olderThan);
-      return removed;
+      return removed.flat();
     },
 
     onIdle: async () => {
@@ -440,17 +428,19 @@ function createQueueApi<Definitions extends JobDefinitions>(
       listener: (payload: QueueEventMap[Event]) => void
     ) => {
       const { name, state } = queueEventMap[event];
-      const handler = (payload: { jobId?: string }): void => {
-        if (event === "error") {
-          listener(payload as never);
-          return;
-        }
-        // The event name already says what state the job is in, so only the
-        // job itself has to be fetched.
-        void store.snapshot(String(payload.jobId), state).then((snapshot) => {
-          if (snapshot) listener(snapshot as never);
-        });
-      };
+      const deliver = listener as (payload: unknown) => void;
+      // `error` carries an Error rather than a job, and which one this is was
+      // settled when on() was called — not on every delivery.
+      const handler =
+        event === "error"
+          ? deliver
+          : ({ jobId }: { jobId: string }): void => {
+              // The event already says what state the job is in, so only the
+              // job itself has to be fetched.
+              void store.snapshot(jobId, state).then((snapshot) => {
+                if (snapshot) deliver(snapshot);
+              });
+            };
       // Attaching has to wait for the stream to open, so unsubscribing before
       // that has to be remembered rather than applied.
       let detach: (() => void) | undefined;
@@ -548,7 +538,7 @@ export function enqiu<const Definitions extends JobDefinitions>(
     if (autoStart) void worker.run();
   }
 
-  const events = new QueueEventStream(queue, { queueName, base });
+  const events = new QueueEventStream(queue, base);
   const markers = new CancellationMarkers(queue);
   const store = new JobStore(queue, events, markers, worker, telemetry);
 
@@ -577,16 +567,17 @@ export function enqiu<const Definitions extends JobDefinitions>(
   }
 
   const queueApi = createQueueApi<Definitions>(runtime);
+  const workerApi = createWorkerApi(worker);
 
   return Object.freeze({
     jobs: Object.freeze(jobs) as JobsApi<Definitions>,
     queue: queueApi,
-    worker: createWorkerApi(worker),
+    worker: workerApi,
     bull: Object.freeze({ queue, worker }),
     close: async (closeOptions?: { drain?: boolean }) => {
-      const running =
-        worker !== undefined && worker.isRunning() && !worker.isPaused();
-      if ((closeOptions?.drain ?? true) && running) await queueApi.onIdle();
+      if ((closeOptions?.drain ?? true) && workerApi.running) {
+        await queueApi.onIdle();
+      }
       // Three independent connections: closing the worker waits out the jobs
       // it holds, which the other two have no reason to wait for.
       await Promise.all([worker?.close(), events.close(), queue.close()]);

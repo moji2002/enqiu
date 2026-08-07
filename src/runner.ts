@@ -69,19 +69,11 @@ export class JobRunner {
     // One signal for the handler, whichever reason fires first: this queue's
     // own deadline, or a cancellation delivered through BullMQ.
     const controller = new AbortController();
-    if (external) {
-      if (external.aborted) {
-        controller.abort(external.reason);
-      } else {
-        external.addEventListener(
-          "abort",
-          () => controller.abort(external.reason),
-          { once: true }
-        );
-      }
-    }
+    const signal = external
+      ? AbortSignal.any([external, controller.signal])
+      : controller.signal;
     const execution = Promise.resolve(
-      definition.run(bull.data, this.createContext(bull, controller.signal))
+      definition.run(bull.data, this.createContext(bull, signal))
     );
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -106,6 +98,7 @@ export class JobRunner {
 
   private createContext(bull: BullJob, signal: AbortSignal): JobContext {
     const telemetry = this.options.telemetry;
+    const id = String(bull.id);
     const write = (
       level: "debug" | "info" | "warn" | "error",
       message: string,
@@ -115,11 +108,7 @@ export class JobRunner {
       void bull
         .log(JSON.stringify({ level, message, fields, at: Date.now() }))
         .catch(() => undefined);
-      telemetry.jobLog(level, {
-        jobId: String(bull.id),
-        jobName: bull.name,
-        message,
-      });
+      telemetry.jobLog(level, { jobId: id, jobName: bull.name, message });
     };
     const log: JobLogger = {
       debug: (m, f) => write("debug", m, f),
@@ -129,15 +118,15 @@ export class JobRunner {
     };
 
     return {
-      id: String(bull.id),
+      id,
       name: bull.name,
       attempt: bull.attemptsMade + 1,
       signal,
       log,
       reportProgress: async (progress: Progress) => {
         validateProgress(progress);
-        await bull.updateProgress(assertJobValue(progress) as never);
-        telemetry.jobProgress(String(bull.id), progress);
+        await bull.updateProgress(assertJobValue(progress));
+        telemetry.jobProgress(id, progress);
       },
     };
   }

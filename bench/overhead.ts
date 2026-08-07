@@ -18,7 +18,7 @@
  */
 
 import IORedis from "ioredis";
-import { Queue, Worker } from "bullmq";
+import { Queue, Worker, removeAllQueueData } from "bullmq";
 import { z } from "zod";
 import { enqiu, job } from "../src/index.js";
 
@@ -61,11 +61,14 @@ const median = (values: number[]): number =>
 const rate = (ms: number): string =>
   `${Math.round(JOBS / (ms / 1000)).toLocaleString()} jobs/sec`;
 
+/**
+ * BullMQ's own helper: SCAN + pipelined DEL rather than KEYS, which is O(the
+ * whole keyspace) and blocks the server this benchmark is timing.
+ */
 async function flush(prefix: string): Promise<void> {
   const client = new IORedis(URL as string, { maxRetriesPerRequest: null });
-  const keys = await client.keys(`${prefix}*`);
-  if (keys.length > 0) await client.del(...keys);
-  await client.quit();
+  // It closes the client itself.
+  await removeAllQueueData(client, "bench", prefix);
 }
 
 /**
@@ -79,7 +82,7 @@ async function flush(prefix: string): Promise<void> {
  */
 async function rawBullmq(): Promise<number> {
   const prefix = "bench-raw";
-  await flush(`${prefix}:`);
+  await flush(prefix);
   const queue = new Queue("bench", { connection, prefix });
 
   const { tick, allDone } = latch();
@@ -112,7 +115,7 @@ async function rawBullmq(): Promise<number> {
 
 async function viaEnqiu(validated: boolean): Promise<number> {
   const prefix = `bench-enqiu-${validated ? "zod" : "bare"}`;
-  await flush(`${prefix}:`);
+  await flush(prefix);
 
   const { tick, allDone } = latch();
   const run = async (value: { i: number }) => {

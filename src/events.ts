@@ -15,17 +15,12 @@
 import { QueueEvents, type Queue } from "bullmq";
 import { backendClient, type BullBase } from "./backend.js";
 
-export interface EventStreamOptions {
-  readonly queueName: string;
-  readonly base: BullBase;
-}
-
 export class QueueEventStream {
   private opened: Promise<QueueEvents> | undefined;
 
   constructor(
     private readonly queue: Queue,
-    private readonly options: EventStreamOptions
+    private readonly base: BullBase
   ) {}
 
   open(): Promise<QueueEvents> {
@@ -39,8 +34,8 @@ export class QueueEventStream {
         "1"
       );
       const first = Array.isArray(tail) ? (tail[0] as unknown[]) : undefined;
-      const events = new QueueEvents(this.options.queueName, {
-        ...this.options.base,
+      const events = new QueueEvents(this.queue.name, {
+        ...this.base,
         lastEventId: first ? String(first[0]) : "0-0",
       });
       await events.waitUntilReady();

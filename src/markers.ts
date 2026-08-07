@@ -7,21 +7,15 @@
  * obvious first answer and the wrong one: it made a job's fate depend on which
  * process asked, and lost it entirely on restart.
  *
- * The marker carries the whole snapshot rather than just a reason, because it
- * is the only thing left once the job is gone. Storing less meant inventing
- * the rest — a row reading `name: "unknown"`, `input: undefined` — which is a
- * worse answer than the truth it replaced.
+ * What is stored is the finished snapshot itself, not a reason beside a copy of
+ * one: it is the only record left once the job is gone, and everything a reader
+ * wants is already a field of `JobSnapshot`. Wrapping it meant three records of
+ * one event that had to agree, reassembled differently by each reader.
  */
 
 import type { Queue } from "bullmq";
 import { backendClient } from "./backend.js";
 import type { JobSnapshot } from "./types.js";
-
-export interface Tombstone {
-  readonly reason: string;
-  readonly at: number;
-  readonly snapshot: JobSnapshot;
-}
 
 /** Deleted in batches: one HDEL naming every field can exceed Redis' limit. */
 const DELETE_BATCH = 500;
@@ -33,15 +27,15 @@ export class CancellationMarkers {
     this.key = queue.toKey("enqiu:cancelled");
   }
 
-  async write(id: string, tombstone: Tombstone): Promise<void> {
+  async write(id: string, snapshot: JobSnapshot): Promise<void> {
     const client = await backendClient(this.queue);
-    await client.hset(this.key, { [id]: JSON.stringify(tombstone) });
+    await client.hset(this.key, { [id]: JSON.stringify(snapshot) });
   }
 
-  async read(id: string): Promise<Tombstone | undefined> {
+  async read(id: string): Promise<JobSnapshot | undefined> {
     const client = await backendClient(this.queue);
     const raw = await client.hget(this.key, id);
-    return raw ? (JSON.parse(raw) as Tombstone) : undefined;
+    return raw ? (JSON.parse(raw) as JobSnapshot) : undefined;
   }
 
   /** Markers outlive their jobs otherwise, so the hash grows forever. */
@@ -50,7 +44,7 @@ export class CancellationMarkers {
     const stale = Object.entries(await client.hgetall(this.key))
       .filter(([, raw]) => {
         try {
-          return (JSON.parse(raw) as Tombstone).at <= threshold;
+          return ((JSON.parse(raw) as JobSnapshot).finishedAt ?? 0) <= threshold;
         } catch {
           return true;
         }
