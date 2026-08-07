@@ -16,16 +16,17 @@ npm install enqiu@beta bullmq ioredis
 
 ## Core API
 
-- [`enqiu(definitions, options)`](https://github.com/moji2002/enqiu#quick-start): Creates the job set. Each key is a job name; each value is a handler `async (input, ctx) => result` or a `job({ ... })` policy wrapper. `options.connection` is **required** and is passed straight to BullMQ. Returns callable jobs plus `queue` and `worker` controls.
+- [`enqiu(definitions, options)`](https://github.com/moji2002/enqiu#quick-start): Creates the job set. Each key is a job name; each value is a handler `async (input, ctx) => result` or a `job({ ... })` policy wrapper. `options.connection` is **required** and is passed straight to BullMQ. Returns `{ jobs, queue, worker, bull, close }`, meant to be destructured — `const { jobs, queue, worker, close } = enqiu(...)`. Your jobs live under `jobs`, so **no job name is reserved**: a job called `queue` is reachable as `jobs.queue`.
 - [`await jobs.<name>(input, options?)`](https://github.com/moji2002/enqiu#quick-start): Enqueues and returns a **handle**. Resolves when BullMQ *accepts* the job — **not** when the handler finishes.
 - `handle.result`: A promise for the handler's return value. Await it only when the caller needs the result.
-- `handle.refresh()`: Re-reads the persisted record; `.status` is `queued`, `scheduled`, `running`, `succeeded`, `failed` or `cancelled`.
+- `handle.refresh()`: Re-reads the persisted record; `.status` is `queued`, `scheduled`, `running`, `succeeded`, `failed` or `cancelled`. **The handle itself has no `.status`** — it could only report what was true when the handle was made. Always `refresh()`.
 - `handle.cancel()`: Removes a job that has not started. Returns `false` once it is running or finished.
 - `jobs.<name>.bulk(inputs, options?)`: Submits many at once.
 - `jobs.<name>.schedule({ id, cron, timezone, input })`: Five-field cron with IANA time zones, backed by BullMQ job schedulers. Returns a handle with `refresh()` and `remove()`.
 - `jobs.<name>.input`: The job's Standard Schema input schema, exposed so an HTTP route can validate against it without redefining the type.
-- Queue controls: `queue.get(id)`, `queue.list({ status, limit, cursor })`, `queue.stats()`, `queue.pause()`, `queue.resume()`, `queue.setConcurrency(n)`, `queue.redrive(id)`, `queue.cleanup({ status, olderThan })`, `queue.on(event, cb)`.
-- Worker controls: `worker.start({ concurrency })`, `worker.pause()`, `worker.resume()`, `worker.onIdle()`, `worker.close({ drain })`.
+- Queue controls: `queue.get(id)`, `queue.list({ status, limit, cursor })` (**`status` is required**), `queue.stats()`, `queue.pause()`, `queue.resume()`, `queue.setConcurrency(n)`, `queue.redrive(id)`, `queue.cleanup({ status, olderThan })`, `queue.on(event, cb)`, `queue.onIdle()`.
+- Worker controls: `worker.start({ concurrency })`, `worker.pause()`, `worker.resume()`, `worker.running`.
+- `close({ drain })` shuts down the queue, the worker and any open event stream. It is returned by `enqiu()`, not a method on `worker`, because it ends all three — including on a producer-only queue.
 
 ## Job policies
 
@@ -43,14 +44,15 @@ npm install enqiu@beta bullmq ioredis
 - **Assume at-least-once delivery.** Retries and worker recovery can run a job more than once; make external side effects idempotent when duplicate execution would be harmful.
 - **Always close the worker in tests**, and build a fresh queue per test with its own `prefix` so state never leaks between cases.
 - Durations are plain numbers in milliseconds.
-- `worker: false` creates a producer-only process that enqueues without running handlers; calling `worker.start()` on it throws.
+- `worker: false` creates a producer-only process that enqueues without running handlers; calling `worker.start()` on it throws. Use `close()` to shut it down.
+- `queue.list` requires a status. BullMQ ranges over each underlying state separately, so there is no meaningful "all statuses" page.
 - Schemas are optional — a plain typed handler infers its own result type.
 
 ## Escaping the layer
 
-- `jobs.bull.queue` and `jobs.bull.worker` expose the underlying BullMQ objects. Use them for anything Enqiu does not model — flows, Pro groups, metrics, raw options. Calls through them have no wrapper overhead.
-- The layer costs about 5% against raw BullMQ on the same Redis, and about 7% with Zod validation.
-- `validatePayloads: false` in the options skips Enqiu's JSON-safety check, worth about a point of that, at the cost of the precise error path.
+- `bull.queue` and `bull.worker` expose the underlying BullMQ objects. Use them for anything Enqiu does not model — flows, Pro groups, metrics, raw options. Calls through them have no wrapper overhead.
+- Enqiu reads its own state from those objects rather than mirroring it, so pausing `bull.worker` or closing `bull.queue` is reflected on the Enqiu side.
+- The layer costs about 2% against raw BullMQ on the same Redis, and about 3% with Zod validation.
 
 ## Not available
 

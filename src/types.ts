@@ -95,10 +95,11 @@ export interface RetryPolicy {
 /**
  * Per-job policies.
  *
- * `timeout` and `expiresIn` are enforced by Enqiu around the handler, because
- * BullMQ has neither. Keyed concurrency, keyed throttling and debounce are not
- * here: BullMQ's open-source tier offers only a global per-worker rate limit,
- * and per-key grouping is a BullMQ Pro feature.
+ * `timeout` and `expiresIn` live here rather than on a submission because
+ * Enqiu enforces them worker-side, and BullMQ's job options have no field to
+ * carry a per-submission value across the queue. Keyed concurrency, keyed
+ * throttling and debounce are absent: BullMQ's open-source tier offers only a
+ * global per-worker rate limit, and per-key grouping is a Pro feature.
  */
 export interface JobPolicyOptions {
   retry?: number | RetryPolicy;
@@ -158,13 +159,6 @@ type DefinitionSchema<Definition> =
   Definition extends SchemaJobDefinition<infer Schema, any> ? Schema : undefined;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/**
- * Per-submission options.
- *
- * `timeout` and `expiresIn` are absent here on purpose. They live on the job
- * definition because Enqiu enforces them worker-side, and BullMQ's job options
- * have no free field to carry a per-submission value across the queue.
- */
 export interface SubmitOptions {
   id?: string;
   /** Reuses an existing job with the same key instead of creating a new one. */
@@ -221,6 +215,13 @@ export interface JobSnapshot<
   error?: SerializedError | undefined;
 }
 
+/**
+ * What a submission gives you back.
+ *
+ * There is no `status` field. It could only ever report what was true when the
+ * handle was made, which is a value that goes quietly wrong while you hold it.
+ * `refresh()` answers the question at the moment you ask.
+ */
 export interface JobHandle<
   Output = unknown,
   Input = unknown,
@@ -229,8 +230,6 @@ export interface JobHandle<
   readonly id: string;
   readonly name: Name;
   readonly input: Input;
-  /** State at the time the handle was created or last refreshed. */
-  readonly status: JobStatus;
   readonly deduplicated: boolean;
   readonly result: Promise<Output>;
   cancel(reason?: string): Promise<boolean>;
@@ -264,8 +263,15 @@ export interface QueueStats {
   total: number;
 }
 
+/**
+ * `status` is required.
+ *
+ * BullMQ ranges over each underlying state separately, so an offset across a
+ * merged set of states cannot mean "position in the result" — it would skip
+ * and repeat jobs. Naming the status keeps the cursor honest.
+ */
 export interface JobListQuery {
-  status?: JobStatus;
+  status: JobStatus;
   limit?: number;
   cursor?: string;
 }
@@ -300,13 +306,21 @@ export interface QueueEventMap {
 
 export interface QueueApi<Definitions extends JobDefinitions> {
   get(id: string): Promise<AnyJobSnapshot<Definitions> | undefined>;
-  list(query?: JobListQuery): Promise<JobListPage<AnyJobSnapshot<Definitions>>>;
+  list(query: JobListQuery): Promise<JobListPage<AnyJobSnapshot<Definitions>>>;
   stats(): Promise<QueueStats>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   setConcurrency(limit: number): Promise<void>;
   redrive(id: string): Promise<JobHandle>;
   cleanup(query?: CleanupQuery): Promise<string[]>;
+  /**
+   * Resolves once nothing is waiting, running, delayed or prioritized.
+   *
+   * A property of the queue, not of any one worker: every process sharing the
+   * queue sees the same answer, and a producer that keeps submitting will keep
+   * this pending.
+   */
+  onIdle(): Promise<void>;
   on<Event extends keyof QueueEventMap>(
     event: Event,
     listener: (payload: QueueEventMap[Event]) => void
@@ -322,8 +336,6 @@ export interface WorkerApi {
   start(options?: WorkerStartOptions): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
-  onIdle(): Promise<void>;
-  close(options?: { drain?: boolean }): Promise<void>;
 }
 
 export interface WorkerOptions {
@@ -338,7 +350,16 @@ export interface TelemetryEvent {
   readonly fields?: Readonly<Record<string, unknown>>;
 }
 
-export interface Telemetry {
+/**
+ * Named `TelemetrySink` rather than `Telemetry`, which BullMQ already exports
+ * as something else entirely — an OpenTelemetry tracer pair.
+ *
+ * Receives what the worker does as well as what Enqiu does: completions,
+ * failures, stalls and worker errors alongside logs, progress and
+ * cancellations. Note that providing a sink attaches a listener to the
+ * worker's `error` event, which otherwise throws when nothing is listening.
+ */
+export interface TelemetrySink {
   emit(event: TelemetryEvent): void;
 }
 
@@ -356,24 +377,14 @@ export interface EnqiuOptions {
   timeout?: number;
   /**
    * Structured log lines retained per job. Read them back with
-   * `jobs.bull.queue.getJobLogs(id)` — an extra round trip Enqiu does not
-   * make on your behalf. @default 100
+   * `bull.queue.getJobLogs(id)` — an extra round trip Enqiu does not make on
+   * your behalf. @default 100
    */
   logLimit?: number;
-  /**
-   * Check that job inputs and results are storable before handing them over.
-   *
-   * Worth about one point of the layer's ~5% overhead, and buys an error
-   * naming the exact path rather than whatever the serialiser says once the
-   * value is already on its way to Redis. Turn it off if you have measured
-   * that it matters and trust your payloads.
-   *
-   * @default true
-   */
-  validatePayloads?: boolean;
-  telemetry?: Telemetry;
+  telemetry?: TelemetrySink;
 }
 
+/** Your jobs, and nothing else. */
 export type JobsApi<Definitions extends JobDefinitions> = {
   readonly [Name in keyof Definitions]: JobCallable<
     DefinitionInput<Definitions[Name]>,
@@ -382,7 +393,17 @@ export type JobsApi<Definitions extends JobDefinitions> = {
     Extract<Name, string>,
     DefinitionSchema<Definitions[Name]>
   >;
-} & {
+};
+
+/**
+ * What `enqiu()` returns, meant to be destructured.
+ *
+ * Keeping the queue and worker controls beside your jobs rather than among
+ * them is why no job name is reserved: `jobs.queue` is a job called `queue`,
+ * and nothing here has to police the difference.
+ */
+export interface Enqiu<Definitions extends JobDefinitions> {
+  readonly jobs: JobsApi<Definitions>;
   readonly queue: QueueApi<Definitions>;
   readonly worker: WorkerApi;
   /**
@@ -397,4 +418,12 @@ export type JobsApi<Definitions extends JobDefinitions> = {
     readonly queue: Queue;
     readonly worker: Worker | undefined;
   };
-};
+  /**
+   * Shuts down the queue, the worker and any open event stream.
+   *
+   * `drain` waits for outstanding work first. It lives here rather than on
+   * `worker` because it ends all three, including on a producer-only queue
+   * that has no worker at all.
+   */
+  close(options?: { drain?: boolean }): Promise<void>;
+}

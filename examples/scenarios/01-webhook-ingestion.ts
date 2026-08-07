@@ -19,7 +19,7 @@ heading(
 const handled: string[] = [];
 let flakyAttempts = 0;
 
-const jobs = makeJobs({
+const { jobs, close } = makeJobs({
   handleWebhook: job({
     input: z.object({ eventId: z.string(), type: z.string() }),
     retry: { attempts: 4, backoff: { type: "exponential", delay: 20 } },
@@ -55,4 +55,4 @@ await flaky.result;
 expect(flakyAttempts === 3, "retried with backoff until it succeeded");
 expect((await flaky.refresh()).status === "succeeded", "and settled as succeeded");
 
-await finish("Scenario 1", jobs);
+await finish("Scenario 1", close);

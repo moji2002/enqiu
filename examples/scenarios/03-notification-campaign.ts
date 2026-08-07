@@ -18,7 +18,7 @@ heading(
 
 const sent: string[] = [];
 
-const jobs = makeJobs(
+const { jobs, queue, worker, close } = makeJobs(
   {
     sendEmail: job({
       input: z.object({ to: z.string(), tier: z.string() }),
@@ -50,8 +50,8 @@ step("a password reset jumps the queue …");
 await jobs.sendEmail({ to: "urgent@example.com", tier: "reset" }, { priority: "high" });
 
 step("starting the worker …");
-await jobs.worker.start();
-await jobs.worker.onIdle();
+await worker.start();
+await queue.onIdle();
 
 expect(sent[0] === "reset:urgent@example.com", "the high-priority reset went first");
 expect(sent.length === 6, "every queued message was sent");
@@ -77,4 +77,4 @@ expect(snapshot.nextRunAt > Date.now(), "and knows its next occurrence");
 note(`next run: ${new Date(snapshot.nextRunAt).toISOString()}`);
 await digest.remove();
 
-await finish("Scenario 3", jobs, { drain: false });
+await finish("Scenario 3", close, { drain: false });

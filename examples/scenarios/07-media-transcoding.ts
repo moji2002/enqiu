@@ -20,7 +20,7 @@ const order: string[] = [];
 let concurrent = 0;
 let peak = 0;
 
-const jobs = makeJobs(
+const { jobs, queue, worker, close } = makeJobs(
   {
     transcode: job({
       input: z.object({ asset: z.string(), tier: z.string() }),
@@ -52,10 +52,10 @@ await Promise.all([
   jobs.transcode({ asset: "paid-1", tier: "paid" }, { priority: "high" }),
 ]);
 
-expect((await jobs.queue.stats()).queued === 8, "8 uploads wait on a pool of 2");
+expect((await queue.stats()).queued === 8, "8 uploads wait on a pool of 2");
 
-await jobs.worker.start();
-await jobs.worker.onIdle();
+await worker.start();
+await queue.onIdle();
 
 expect(peak <= 2, `the pool never exceeded 2 concurrent transcodes (peak ${peak})`);
 expect(
@@ -64,4 +64,4 @@ expect(
 );
 note("pool size is a resource decision — size it to cores, not to demand.");
 
-await finish("Scenario 7", jobs, { drain: false });
+await finish("Scenario 7", close, { drain: false });

@@ -26,8 +26,10 @@ experience.
 > exact version: it is published under the `beta` dist-tag, so a plain
 > `npm install enqiu` will not install it.
 >
-> The layer in between is new. It is covered at 98% of statements and 87% of
-> branches, and every path is exercised against a real Redis.
+> The layer in between is new. It is covered at 98% of statements and 90% of
+> branches against a real Redis, and the two parts that need no server — the
+> BullMQ vocabulary mapping and the serialization check — are held to their own
+> thresholds in either mode.
 
 ```bash
 npm install enqiu@beta bullmq ioredis
@@ -42,7 +44,7 @@ open connections for you.
 import { enqiu, job } from "enqiu";
 import { z } from "zod";
 
-const jobs = enqiu(
+const { jobs, queue, worker, close } = enqiu(
   {
     sendEmail: job({
       input: z.object({ to: z.string(), subject: z.string() }),
@@ -69,10 +71,21 @@ const result = await handle.result;   // { delivered: boolean; subject: string }
 handle. It does not wait for the handler. Await `handle.result` only when the
 caller needs the result.
 
+`jobs` holds your jobs and nothing else, which is why no job name is reserved —
+`jobs.queue` is a job you called `queue`. The queue and worker controls sit
+beside it:
+
+```ts
+await queue.stats();      // counts by status
+await queue.onIdle();     // resolves when nothing is outstanding
+await worker.pause();
+await close();            // queue, worker and event stream
+```
+
 A plain handler works too, with input and output still inferred:
 
 ```ts
-const jobs = enqiu(
+const { jobs } = enqiu(
   { resizeImage: async (input: { key: string; width: number }) => input },
   { connection },
 );
@@ -99,24 +112,20 @@ groups, metrics, raw job options — is one property away, with no wrapper in
 between and no fork required:
 
 ```ts
-jobs.bull.queue    // the real BullMQ Queue
-jobs.bull.worker   // the real BullMQ Worker, or undefined for a producer
+const { bull } = enqiu(definitions, { connection });
+
+bull.queue    // the real BullMQ Queue
+bull.worker   // the real BullMQ Worker, or undefined for a producer
 ```
+
+Enqiu reads its own state from those objects rather than mirroring it, so
+pausing `bull.worker` or closing `bull.queue` is seen on the Enqiu side too —
+the two cannot drift apart.
 
 Measured against raw BullMQ on the same Redis — 10,000 jobs, concurrency 32,
-contestants interleaved, median of 7 — the typed path costs about 5%, and Zod
-validation about 7%. Calls through `jobs.bull` cost nothing, because nothing is
-in the way.
-
-Roughly a point of that is the serialization check, which you can turn off once
-you trust your payloads:
-
-```ts
-enqiu(definitions, { connection, validatePayloads: false });
-```
-
-That gives up the error naming the exact path of an unserialisable value; the
-serializer still rejects it, later and less precisely.
+contestants interleaved, median of 7 — the typed path costs about 2%, and Zod
+validation about 3%, varying by a point between runs. Calls through `bull` cost
+nothing, because nothing is in the way.
 
 Reproduce with `pnpm tsx bench/overhead.ts`.
 
@@ -148,10 +157,10 @@ ENQIU_TEST_REDIS_URL=redis://localhost:6379 pnpm run check
 ENQIU_TEST_REDIS_URL=redis://localhost:6379 pnpm run scenarios
 ```
 
-Almost every test needs a real Redis, because almost every code path goes
-through BullMQ. Without `ENQIU_TEST_REDIS_URL` only the serialization tests
-run, and coverage thresholds are disabled rather than gating on a number the
-run never verified.
+Most tests need a real Redis, because most code paths go through BullMQ. The
+exceptions are the vocabulary mapping and the serialization check, which are
+pure and stay covered without a server — so a run without
+`ENQIU_TEST_REDIS_URL` still verifies something rather than nothing.
 
 Five runnable, self-asserting scenarios live in
 [`examples/scenarios/`](examples/scenarios): webhook ingestion, notification

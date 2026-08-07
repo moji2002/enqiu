@@ -27,7 +27,7 @@ heading(
 
 let abortObserved = false as boolean;
 
-const jobs = makeJobs({
+const { jobs, close } = makeJobs({
   buildReport: job({
     input: z.object({ rows: z.number() }),
     timeout: 5_000,
@@ -59,7 +59,10 @@ const jobs = makeJobs({
 
 step("submitting a 5-page report; the call returns before it runs …");
 const handle = await jobs.buildReport({ rows: 5 });
-expect(handle.status === "queued", "the caller got a handle, not a finished report");
+expect(
+  handle.name === "buildReport" && handle.input.rows === 5,
+  "the caller got a handle, not a finished report"
+);
 
 const result = await handle.result;
 expect(result.url === "/reports/5.pdf", "awaiting .result yields the report");
@@ -77,4 +80,4 @@ await expectRejects(stuck.result, "a hung report rejects rather than hanging on"
 expect(abortObserved === true, "the timeout aborted the handler's signal");
 expect((await stuck.refresh()).status === "failed", "and the job settled as failed");
 
-await finish("Scenario 4", jobs, { drain: false });
+await finish("Scenario 4", close, { drain: false });

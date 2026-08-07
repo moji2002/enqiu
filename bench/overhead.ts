@@ -5,13 +5,15 @@
  * raw BullMQ on the same Redis. Anything close to parity means the layer is
  * thin; a large gap would be overhead worth removing.
  *
- * Fairness rules: identical Redis, identical job count and concurrency, each
- * contestant in its own namespace flushed between runs, one warmup discarded,
- * median of N runs reported with the raw spread.
+ * Fairness rules: identical Redis, identical connection handling, identical job
+ * count and concurrency, each contestant in its own namespace flushed between
+ * runs, every contestant warmed before anything is measured, and the runs
+ * interleaved so no one absorbs the warmup on everyone else's behalf. Median of
+ * N reported with the raw spread.
  *
  * Three contestants, because the cost splits in two places:
  *   - raw BullMQ                — the floor
- *   - Enqiu, bare handler       — the wrapper minus validation
+ *   - Enqiu, bare handler       — the wrapper minus schema validation
  *   - Enqiu, Zod-validated      — what most callers actually write
  */
 
@@ -108,11 +110,8 @@ async function rawBullmq(): Promise<number> {
   return ms;
 }
 
-async function viaEnqiu(
-  validated: boolean,
-  validatePayloads = true
-): Promise<number> {
-  const prefix = `bench-enqiu-${validated ? "zod" : "bare"}-${validatePayloads}`;
+async function viaEnqiu(validated: boolean): Promise<number> {
+  const prefix = `bench-enqiu-${validated ? "zod" : "bare"}`;
   await flush(`${prefix}:`);
 
   const { tick, allDone } = latch();
@@ -122,7 +121,7 @@ async function viaEnqiu(
     return value;
   };
 
-  const jobs = enqiu(
+  const { jobs, worker, close } = enqiu(
     validated
       ? { work: job({ input: z.object({ i: z.number() }), run }) }
       : { work: run },
@@ -131,17 +130,16 @@ async function viaEnqiu(
       connection,
       prefix,
       worker: { concurrency: CONCURRENCY, autoStart: false },
-      validatePayloads,
     }
   );
 
   const started = process.hrtime.bigint();
   await jobs.work.bulk(Array.from({ length: JOBS }, (_, i) => ({ i })));
-  await jobs.worker.start();
+  await worker.start();
   await allDone;
   const ms = Number(process.hrtime.bigint() - started) / 1e6;
 
-  await jobs.worker.close({ drain: false });
+  await close({ drain: false });
   return ms;
 }
 
@@ -149,7 +147,6 @@ const contestants = [
   { label: "raw BullMQ", run: rawBullmq },
   { label: "Enqiu (bare handler)", run: () => viaEnqiu(false) },
   { label: "Enqiu (Zod-validated)", run: () => viaEnqiu(true) },
-  { label: "Enqiu (no payload check)", run: () => viaEnqiu(false, false) },
 ];
 
 console.log(

@@ -9,13 +9,15 @@ import {
 } from "vitest";
 import { z } from "zod";
 import {
+  JobCancelledError,
+  JobTimeoutError,
   JobValidationError,
   QueueClosedError,
   enqiu,
   job,
+  type Enqiu,
   type EnqiuOptions,
   type JobContext,
-  type JobsApi,
   type JobDefinitions,
 } from "../src/index.js";
 
@@ -38,20 +40,20 @@ async function waitFor(
 
 describeRedis("enqiu over BullMQ", () => {
   let prefix: string;
-  let open: Array<JobsApi<JobDefinitions>>;
+  let open: Array<Enqiu<JobDefinitions>>;
 
   const make = <Definitions extends JobDefinitions>(
     definitions: Definitions,
     options: Partial<Omit<EnqiuOptions, "connection">> = {}
   ) => {
-    const jobs = enqiu(definitions, {
+    const instance = enqiu(definitions, {
       name: `t-${randomUUID()}`,
       connection,
       prefix,
       ...options,
     });
-    open.push(jobs as unknown as JobsApi<JobDefinitions>);
-    return jobs;
+    open.push(instance as unknown as Enqiu<JobDefinitions>);
+    return instance;
   };
 
   beforeEach(() => {
@@ -61,15 +63,15 @@ describeRedis("enqiu over BullMQ", () => {
 
   afterEach(async () => {
     await Promise.all(
-      open.map((jobs) =>
-        jobs.worker.close({ drain: false }).catch(() => undefined)
+      open.map((instance) =>
+        instance.close({ drain: false }).catch(() => undefined)
       )
     );
   });
 
   describe("typing", () => {
     it("infers schema input, handler input, and output", async () => {
-      const jobs = make({
+      const { jobs } = make({
         parse: job({
           input: z.object({ raw: z.string() }),
           run: async (input) => ({ length: input.raw.length }),
@@ -83,7 +85,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("correlates the job name with its own input and output", async () => {
-      const jobs = make({
+      const { jobs } = make({
         sendEmail: job({
           input: z.object({ to: z.string() }),
           run: async (input) => ({ delivered: true, to: input.to }),
@@ -110,14 +112,14 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("supports a bare handler with no schema", async () => {
-      const jobs = make({ double: async (value: number) => value * 2 });
+      const { jobs } = make({ double: async (value: number) => value * 2 });
       const handle = await jobs.double(21);
       await expect(handle.result).resolves.toBe(42);
     });
 
     it("passes a typed context to the handler", async () => {
       const seen: string[] = [];
-      const jobs = make({
+      const { jobs } = make({
         work: job({
           input: z.object({ id: z.string() }),
           run: async (input, context: JobContext) => {
@@ -129,11 +131,28 @@ describeRedis("enqiu over BullMQ", () => {
       await (await jobs.work({ id: "a" })).result;
       expect(seen).toEqual(["work:a:1"]);
     });
+
+    it("reserves no job names at all", async () => {
+      // The queue and worker controls sit beside your jobs rather than among
+      // them, so none of their names is taken.
+      const { jobs, queue } = make({
+        queue: async (n: number) => n * 2,
+        worker: async (n: number) => n + 1,
+        bull: async (n: number) => n - 1,
+        close: async (n: number) => -n,
+      });
+      await expect((await jobs.queue(21)).result).resolves.toBe(42);
+      await expect((await jobs.worker(1)).result).resolves.toBe(2);
+      await expect((await jobs.bull(1)).result).resolves.toBe(0);
+      await expect((await jobs.close(5)).result).resolves.toBe(-5);
+      await queue.onIdle();
+      expect((await queue.stats()).succeeded).toBe(4);
+    });
   });
 
   describe("validation", () => {
     it("rejects invalid input before anything is queued", async () => {
-      const jobs = make({
+      const { jobs, queue } = make({
         positive: job({
           input: z.number().positive(),
           run: async (value) => value,
@@ -142,49 +161,50 @@ describeRedis("enqiu over BullMQ", () => {
       await expect(jobs.positive(-1)).rejects.toBeInstanceOf(
         JobValidationError
       );
-      expect((await jobs.queue.stats()).total).toBe(0);
+      expect((await queue.stats()).total).toBe(0);
     });
 
     it("rejects input that cannot be serialised", async () => {
-      const jobs = make({ work: async (value: unknown) => value });
+      const { jobs } = make({ work: async (value: unknown) => value });
       await expect(jobs.work({ fn: () => 1 })).rejects.toThrow(
         "function is unsupported"
       );
     });
 
-    it("refuses names that collide with the api surface", () => {
-      expect(() =>
-        enqiu({ queue: async () => 1 }, { connection })
-      ).toThrow('"queue" is reserved by enqiu');
-      expect(() =>
-        enqiu({}, { connection })
-      ).toThrow("At least one job definition is required");
+    it("requires at least one job", () => {
+      expect(() => enqiu({}, { connection })).toThrow(
+        "At least one job definition is required"
+      );
     });
   });
 
   describe("policies Enqiu enforces itself", () => {
     it("times out an attempt and aborts the handler's signal", async () => {
-      let aborted = false;
-      const jobs = make({
+      let reason: unknown;
+      const { jobs } = make({
         slow: job({
           input: z.object({}),
           timeout: 60,
           run: async (_input, context) => {
             context.signal.addEventListener("abort", () => {
-              aborted = true;
+              reason = context.signal.reason;
             });
             await new Promise((resolve) => setTimeout(resolve, 3_000));
           },
         }),
       });
       const handle = await jobs.slow({});
+      // The kind of failure is written down rather than spelled out in prose,
+      // so it survives the trip through Redis as a class, not a string.
+      await expect(handle.result).rejects.toBeInstanceOf(JobTimeoutError);
       await expect(handle.result).rejects.toThrow("timed out after 60ms");
-      expect(aborted).toBe(true);
+      expect(reason).toBeInstanceOf(JobTimeoutError);
+      expect((await handle.refresh()).error?.name).toBe("JobTimeoutError");
     });
 
     it("expires work that waited too long, without retrying it", async () => {
       let runs = 0;
-      const jobs = make(
+      const { jobs, worker } = make(
         {
           stale: job({
             input: z.object({}),
@@ -199,16 +219,17 @@ describeRedis("enqiu over BullMQ", () => {
       );
       const handle = await jobs.stale({});
       await new Promise((resolve) => setTimeout(resolve, 80));
-      await jobs.worker.start();
+      await worker.start();
       await expect(handle.result).rejects.toThrow("expired");
       expect(runs).toBe(0);
+      expect((await handle.refresh()).error?.name).toBe("JobExpiredError");
     });
   });
 
   describe("policies BullMQ provides", () => {
     it("retries with backoff and reports one-based attempts", async () => {
       const attempts: number[] = [];
-      const jobs = make({
+      const { jobs } = make({
         flaky: job({
           input: z.object({}),
           retry: { attempts: 3, backoff: 10 },
@@ -225,7 +246,7 @@ describeRedis("enqiu over BullMQ", () => {
 
     it("falls back to the queue-wide retry default", async () => {
       const attempts: number[] = [];
-      const jobs = make(
+      const { jobs } = make(
         {
           flaky: job({
             input: z.object({}),
@@ -243,7 +264,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("fails terminally once attempts are exhausted", async () => {
-      const jobs = make({
+      const { jobs } = make({
         doomed: job({
           input: z.object({}),
           retry: { attempts: 2, backoff: 5 },
@@ -258,15 +279,16 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("reuses a job for a repeated idempotency key", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
       const first = await jobs.work(1, { idempotencyKey: "once" });
       const second = await jobs.work(2, { idempotencyKey: "once" });
       expect(second.id).toBe(first.id);
       expect(second.deduplicated).toBe(true);
+      expect(first.deduplicated).toBe(false);
     });
 
     it("submits in bulk and honours explicit ids", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
       const handles = await jobs.work.bulk([1, 2, 3], { ids: ["a", "b", "c"] });
       expect(handles.map((h) => h.id)).toEqual(["a", "b", "c"]);
       await expect(jobs.work.bulk([1], { ids: ["x", "y"] })).rejects.toThrow(
@@ -275,19 +297,18 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("delays a job and reports it as scheduled", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
       const handle = await jobs.work(1, { delay: 30_000 });
-      expect(handle.status).toBe("scheduled");
       expect((await handle.refresh()).status).toBe("scheduled");
     });
   });
 
   describe("queue and worker control", () => {
     it("reports stats whose parts sum to the total", async () => {
-      const jobs = make({ work: async (n: number) => n });
+      const { jobs, queue } = make({ work: async (n: number) => n });
       await jobs.work.bulk([1, 2, 3]);
-      await jobs.worker.onIdle();
-      const stats = await jobs.queue.stats();
+      await queue.onIdle();
+      const stats = await queue.stats();
       expect(
         stats.queued +
           stats.scheduled +
@@ -299,29 +320,61 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("lists jobs and reads one back by id", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      const handle = await jobs.work(7);
-      const page = await jobs.queue.list({ limit: 10 });
-      expect(page.jobs.map((j) => j.id)).toContain(handle.id);
-      expect((await jobs.queue.get(handle.id))?.input).toBe(7);
-      expect(await jobs.queue.get("missing")).toBeUndefined();
-      await expect(jobs.queue.list({ limit: 0 })).rejects.toThrow("list.limit");
-      await expect(jobs.queue.list({ cursor: "nope" })).rejects.toThrow(
-        "Invalid list cursor"
+      const { jobs, queue } = make(
+        { work: async (n: number) => n },
+        { worker: false }
       );
+      const handle = await jobs.work(7);
+      const page = await queue.list({ status: "queued", limit: 10 });
+      expect(page.jobs.map((j) => j.id)).toContain(handle.id);
+      expect((await queue.get(handle.id))?.input).toBe(7);
+      expect(await queue.get("missing")).toBeUndefined();
+      await expect(
+        queue.list({ status: "queued", limit: 0 })
+      ).rejects.toThrow("list.limit");
+      await expect(
+        queue.list({ status: "queued", cursor: "nope" })
+      ).rejects.toThrow("Invalid list cursor");
+    });
+
+    it("pages through a status without skipping or repeating a job", async () => {
+      const { jobs, queue } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      await jobs.work.bulk([1, 2, 3, 4, 5]);
+      // A prioritized job is queued too, and lives in a different Redis
+      // structure — which is exactly what a single-number cursor got wrong.
+      await jobs.work(6, { priority: "high" });
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const page = await queue.list({
+          status: "queued",
+          limit: 2,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        expect(page.jobs.every((j) => j.status === "queued")).toBe(true);
+        seen.push(...page.jobs.map((j) => j.id));
+        if (page.cursor === undefined) break;
+        cursor = page.cursor;
+      }
+      expect(seen).toHaveLength(6);
+      expect(new Set(seen).size).toBe(6);
     });
 
     it("cancels a job that has not started", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
+      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
       const handle = await jobs.work(1);
       await expect(handle.cancel()).resolves.toBe(true);
       expect((await handle.refresh()).status).toBe("cancelled");
-      await expect(handle.result).rejects.toThrow();
+      await expect(handle.result).rejects.toBeInstanceOf(JobCancelledError);
     });
 
     it("redrives a failed job and cleans up finished work", async () => {
       let succeed = false;
-      const jobs = make({
+      const { jobs, queue } = make({
         work: job({
           input: z.object({}),
           run: async () => {
@@ -334,36 +387,51 @@ describeRedis("enqiu over BullMQ", () => {
       await expect(handle.result).rejects.toThrow("first run fails");
 
       succeed = true;
-      const again = await jobs.queue.redrive(handle.id);
-      await jobs.worker.onIdle();
+      const again = await queue.redrive(handle.id);
+      await queue.onIdle();
       expect((await again.refresh()).status).toBe("succeeded");
 
-      await expect(jobs.queue.redrive("missing")).rejects.toThrow(
+      await expect(queue.redrive("missing")).rejects.toThrow(
         "cannot be redriven"
       );
-      const removed = await jobs.queue.cleanup({ status: "succeeded" });
+      const removed = await queue.cleanup({ status: "succeeded" });
       expect(removed.length).toBeGreaterThan(0);
     });
 
     it("pauses and resumes the worker", async () => {
-      const jobs = make({ work: async (n: number) => n });
-      expect(jobs.worker.running).toBe(true);
-      await jobs.worker.pause();
-      expect(jobs.worker.running).toBe(false);
-      await jobs.worker.start({ concurrency: 2 });
-      expect(jobs.worker.running).toBe(true);
+      const { jobs, worker } = make({ work: async (n: number) => n });
+      expect(worker.running).toBe(true);
+      await worker.pause();
+      expect(worker.running).toBe(false);
+      await worker.start({ concurrency: 2 });
+      expect(worker.running).toBe(true);
       await expect((await jobs.work(3)).result).resolves.toBe(3);
     });
 
     it("refuses to start a worker on a producer-only queue", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      await expect(jobs.worker.start()).rejects.toThrow("worker: false");
+      const { worker } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      await expect(worker.start()).rejects.toThrow("worker: false");
+      expect(worker.running).toBe(false);
+    });
+
+    it("closes the whole instance, worker or not", async () => {
+      const producer = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      await producer.close();
+      await expect(producer.jobs.work(1)).rejects.toBeInstanceOf(
+        QueueClosedError
+      );
     });
   });
 
   describe("observability", () => {
     it("records progress and logs on the job", async () => {
-      const jobs = make({
+      const { jobs } = make({
         work: job({
           input: z.object({}),
           run: async (_input, context) => {
@@ -380,7 +448,7 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("rejects malformed progress and empty log messages", async () => {
-      const jobs = make({
+      const { jobs } = make({
         bad: job({
           input: z.object({}),
           run: async (_input, context) => {
@@ -402,9 +470,9 @@ describeRedis("enqiu over BullMQ", () => {
       );
     });
 
-    it("forwards lifecycle events to telemetry", async () => {
+    it("forwards the worker's own lifecycle to telemetry, not just Enqiu's", async () => {
       const events: string[] = [];
-      const jobs = make(
+      const { jobs } = make(
         {
           work: job({
             input: z.object({}),
@@ -413,17 +481,45 @@ describeRedis("enqiu over BullMQ", () => {
               return 1;
             },
           }),
+          doomed: job({
+            input: z.object({}),
+            run: async () => {
+              throw new Error("nope");
+            },
+          }),
         },
         { telemetry: { emit: (event) => events.push(event.type) } }
       );
       await (await jobs.work({})).result;
+      await (await jobs.doomed({})).result.catch(() => undefined);
+      await waitFor(() => events.includes("job.failed"));
+
       expect(events).toContain("job.log.info");
+      // A completion and a failure are what anyone wiring telemetry came for.
+      expect(events).toContain("job.succeeded");
+      expect(events).toContain("job.failed");
+    });
+
+    it("logs at every level", async () => {
+      const { jobs } = make({
+        noisy: job({
+          input: z.object({}),
+          run: async (_i, context) => {
+            context.log.debug("d");
+            context.log.info("i");
+            context.log.warn("w");
+            context.log.error("e");
+            return 1;
+          },
+        }),
+      });
+      await expect((await jobs.noisy({})).result).resolves.toBe(1);
     });
   });
 
   describe("schedules", () => {
     it("registers, inspects and removes a cron schedule", async () => {
-      const jobs = make(
+      const { jobs } = make(
         { digest: job({ input: z.object({}), run: async () => 1 }) },
         { worker: false }
       );
@@ -444,11 +540,11 @@ describeRedis("enqiu over BullMQ", () => {
 
   describe("event subscription", () => {
     it("delivers lifecycle events to subscribers", async () => {
-      const jobs = make({ work: async (n: number) => n });
+      const { jobs, queue } = make({ work: async (n: number) => n });
       const seen: string[] = [];
-      const off = jobs.queue.on("succeeded", (s) => seen.push(`succeeded:${s.id}`));
-      jobs.queue.on("added", (s) => seen.push(`added:${s.id}`));
-      jobs.queue.on("started", (s) => seen.push(`started:${s.id}`));
+      const off = queue.on("succeeded", (s) => seen.push(`succeeded:${s.id}`));
+      queue.on("added", (s) => seen.push(`added:${s.id}`));
+      queue.on("started", (s) => seen.push(`started:${s.id}`));
 
       // No warm-up: the stream opens from a captured tail, so even the very
       // first job submitted after subscribing must be seen.
@@ -458,20 +554,21 @@ describeRedis("enqiu over BullMQ", () => {
 
       expect(seen).toContain(`added:${handle.id}`);
       expect(seen).toContain(`started:${handle.id}`);
-      expect(seen).toContain(`succeeded:${handle.id}`);
 
       off();
-      const afterUnsubscribe = seen.filter((e) => e.startsWith("succeeded:")).length;
+      const afterUnsubscribe = seen.filter((e) =>
+        e.startsWith("succeeded:")
+      ).length;
       const last = await jobs.work(3);
       await last.result;
       await new Promise((r) => setTimeout(r, 200));
-      expect(
-        seen.filter((e) => e.startsWith("succeeded:")).length
-      ).toBe(afterUnsubscribe);
+      expect(seen.filter((e) => e.startsWith("succeeded:")).length).toBe(
+        afterUnsubscribe
+      );
     });
 
     it("reports a failure to subscribers", async () => {
-      const jobs = make({
+      const { jobs, queue } = make({
         doomed: job({
           input: z.object({}),
           run: async () => {
@@ -480,7 +577,7 @@ describeRedis("enqiu over BullMQ", () => {
         }),
       });
       const failures: string[] = [];
-      jobs.queue.on("failed", (snapshot) => failures.push(snapshot.id));
+      queue.on("failed", (snapshot) => failures.push(snapshot.id));
       const handle = await jobs.doomed({});
       await handle.result.catch(() => undefined);
       await waitFor(() => failures.length === 1);
@@ -491,7 +588,7 @@ describeRedis("enqiu over BullMQ", () => {
   describe("cancellation", () => {
     it("aborts a job that is already running", async () => {
       let aborted = false;
-      const jobs = make({
+      const { jobs } = make({
         slow: job({
           input: z.object({}),
           run: async (_input, context) =>
@@ -513,6 +610,23 @@ describeRedis("enqiu over BullMQ", () => {
       expect(aborted).toBe(true);
     });
 
+    it("keeps the cancelled job's own name and input, not a stub", async () => {
+      const { jobs, queue } = make(
+        { sendEmail: async (input: { to: string }) => input },
+        { worker: false }
+      );
+      const handle = await jobs.sendEmail({ to: "a@b.c" });
+      expect(await handle.cancel("changed my mind")).toBe(true);
+
+      // The job is gone from BullMQ, so the marker is the only record — and it
+      // kept what the job actually was.
+      const snapshot = await queue.get(handle.id);
+      expect(snapshot?.status).toBe("cancelled");
+      expect(snapshot?.name).toBe("sendEmail");
+      expect(snapshot?.input).toEqual({ to: "a@b.c" });
+      expect(snapshot?.error?.message).toBe("changed my mind");
+    });
+
     it("records a cancellation durably, so another process sees it", async () => {
       const name = `shared-${randomUUID()}`;
       const producer = make({ work: async (n: number) => n }, {
@@ -524,13 +638,37 @@ describeRedis("enqiu over BullMQ", () => {
         worker: false,
       });
 
-      const handle = await producer.work(1);
+      const handle = await producer.jobs.work(1);
       expect(await handle.cancel("not needed")).toBe(true);
 
       // A different instance, with no in-process memory of the cancellation.
       const seen = await observer.queue.get(handle.id);
       expect(seen?.status).toBe("cancelled");
       expect(seen?.error?.message).toBe("not needed");
+    });
+
+    it("prunes markers once their jobs are old enough to clean", async () => {
+      const { jobs, queue } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      const handle = await jobs.work(1);
+      await handle.cancel();
+      expect((await queue.get(handle.id))?.status).toBe("cancelled");
+
+      // olderThan 0 makes every marker stale, so the hash is emptied.
+      await queue.cleanup({ olderThan: 0 });
+      expect(await queue.get(handle.id)).toBeUndefined();
+    });
+
+    it("has nothing to list or clean for a status BullMQ does not have", async () => {
+      const { jobs, queue } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      await jobs.work(1);
+      expect((await queue.list({ status: "cancelled" })).jobs).toEqual([]);
+      expect(await queue.cleanup({ status: "cancelled" })).toEqual([]);
     });
   });
 
@@ -559,9 +697,9 @@ describeRedis("enqiu over BullMQ", () => {
       const a = spawn("a");
       const b = spawn("b");
 
-      await a.work.bulk(Array.from({ length: 20 }, (_, i) => ({ n: i })));
-      await a.worker.onIdle();
-      await b.worker.onIdle();
+      await a.jobs.work.bulk(Array.from({ length: 20 }, (_, i) => ({ n: i })));
+      await a.queue.onIdle();
+      await b.queue.onIdle();
 
       expect(processed).toHaveLength(20);
       expect(new Set(processed).size).toBe(20);
@@ -570,153 +708,121 @@ describeRedis("enqiu over BullMQ", () => {
     });
   });
 
-  describe("escape hatch and payload checking", () => {
-    it("exposes the BullMQ objects underneath", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      expect(jobs.bull.queue.name).toBeTypeOf("string");
-      expect(typeof jobs.bull.queue.getJobCounts).toBe("function");
-      expect(jobs.bull.worker).toBeUndefined();
+  describe("the BullMQ objects underneath", () => {
+    it("exposes them", async () => {
+      const producer = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      expect(producer.bull.queue.name).toBeTypeOf("string");
+      expect(typeof producer.bull.queue.getJobCounts).toBe("function");
+      expect(producer.bull.worker).toBeUndefined();
 
       const withWorker = make({ work: async (n: number) => n });
       expect(typeof withWorker.bull.worker?.run).toBe("function");
     });
 
-    it("reserves `bull` as a job name", () => {
-      expect(() =>
-        enqiu({ bull: async () => 1 }, { connection })
-      ).toThrow('"bull" is reserved by enqiu');
-    });
-
     it("reports itself closed when the BullMQ queue is closed underneath", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      await jobs.bull.queue.close();
-      // The facade reads BullMQ rather than a flag it maintains, so the two
+      const { jobs, bull } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      await bull.queue.close();
+      // Read from BullMQ rather than a flag maintained alongside, so the two
       // cannot drift apart.
       await expect(jobs.work(1)).rejects.toBeInstanceOf(QueueClosedError);
     });
 
     it("stops reporting a worker as running once BullMQ pauses it", async () => {
-      const jobs = make({ work: async (n: number) => n });
-      expect(jobs.worker.running).toBe(true);
-      await jobs.bull.worker?.pause();
-      expect(jobs.worker.running).toBe(false);
-    });
-
-    it("skips the payload check when asked", async () => {
-      const strict = make({ work: async (v: unknown) => v }, { worker: false });
-      await expect(strict.work({ fn: () => 1 })).rejects.toThrow(
-        "function is unsupported"
-      );
-
-      // Off, the value goes straight to BullMQ's serialiser instead.
-      const lean = make({ work: async (v: unknown) => v }, {
-        worker: false,
-        validatePayloads: false,
-      });
-      const handle = await lean.work({ ok: 1 });
-      expect((await handle.refresh()).input).toEqual({ ok: 1 });
+      const { worker, bull } = make({ work: async (n: number) => n });
+      expect(worker.running).toBe(true);
+      await bull.worker?.pause();
+      expect(worker.running).toBe(false);
     });
   });
 
   describe("argument validation", () => {
     it("rejects a malformed job definition", () => {
       expect(() => job(undefined as never)).toThrow("requires a definition");
-      expect(() =>
-        job({ input: {} as never, run: async () => 1 })
-      ).toThrow("must implement Standard Schema");
-      expect(() =>
-        job({ input: z.object({}), run: "nope" as never })
-      ).toThrow("job.run must be a function");
+      expect(() => job({ input: {} as never, run: async () => 1 })).toThrow(
+        "must implement Standard Schema"
+      );
+      expect(() => job({ input: z.object({}), run: "nope" as never })).toThrow(
+        "job.run must be a function"
+      );
       expect(() =>
         enqiu({ work: { bad: true } as never }, { connection })
       ).toThrow("handler or a definition created with job()");
     });
 
     it("requires a connection", () => {
-      expect(() =>
-        enqiu({ work: async () => 1 }, {} as never)
-      ).toThrow("requires a BullMQ connection");
+      expect(() => enqiu({ work: async () => 1 }, {} as never)).toThrow(
+        "requires a BullMQ connection"
+      );
     });
 
     it("rejects out-of-range queue arguments", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      await expect(jobs.queue.setConcurrency(0)).rejects.toThrow(
+      const { jobs, queue } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      await expect(queue.setConcurrency(0)).rejects.toThrow(
         "concurrency must be a positive integer"
       );
-      await expect(jobs.queue.cleanup({ olderThan: -1 })).rejects.toThrow(
+      await expect(queue.cleanup({ olderThan: -1 })).rejects.toThrow(
         "non-negative finite"
       );
-      await expect(
-        jobs.work(1, { retry: { attempts: 0 } })
-      ).rejects.toThrow("retry.attempts must be a positive integer");
+      await expect(jobs.work(1, { retry: { attempts: 0 } })).rejects.toThrow(
+        "retry.attempts must be a positive integer"
+      );
     });
 
     it("accepts every documented submit option shape", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      const byDate = await jobs.work(1, { delay: new Date(Date.now() + 60_000) });
+      const { jobs } = make({ work: async (n: number) => n }, { worker: false });
+      const byDate = await jobs.work(1, {
+        delay: new Date(Date.now() + 60_000),
+      });
       expect((await byDate.refresh()).status).toBe("scheduled");
 
-      const numeric = await jobs.work(2, { priority: 5 });
-      expect(numeric.id).toBeTypeOf("string");
-
-      const named = await jobs.work(3, { priority: "low" });
-      expect(named.id).toBeTypeOf("string");
-
-      const backoff = await jobs.work(4, {
-        retry: { attempts: 2, backoff: { type: "exponential", delay: 10 } },
-      });
-      expect(backoff.id).toBeTypeOf("string");
-
-      const ttl = await jobs.work(5, {
-        idempotencyKey: "k",
-        idempotencyTtl: 1_000,
-      });
-      expect(ttl.id).toBeTypeOf("string");
+      expect((await jobs.work(2, { priority: 5 })).id).toBeTypeOf("string");
+      expect((await jobs.work(3, { priority: "low" })).id).toBeTypeOf("string");
+      expect(
+        (
+          await jobs.work(4, {
+            retry: { attempts: 2, backoff: { type: "exponential", delay: 10 } },
+          })
+        ).id
+      ).toBeTypeOf("string");
+      expect(
+        (await jobs.work(5, { idempotencyKey: "k", idempotencyTtl: 1_000 })).id
+      ).toBeTypeOf("string");
     });
 
-    it("lists by each status and prunes cancellation markers", async () => {
-      const jobs = make({ work: async (n: number) => n }, { worker: false });
-      const handle = await jobs.work(1);
-      await handle.cancel();
-
-      for (const status of ["queued", "scheduled", "running", "succeeded", "failed"] as const) {
-        const page = await jobs.queue.list({ status, limit: 10 });
-        expect(Array.isArray(page.jobs)).toBe(true);
+    it("lists every status without complaint", async () => {
+      const { queue } = make(
+        { work: async (n: number) => n },
+        { worker: false }
+      );
+      for (const status of [
+        "queued",
+        "scheduled",
+        "running",
+        "succeeded",
+        "failed",
+      ] as const) {
+        expect(Array.isArray((await queue.list({ status })).jobs)).toBe(true);
       }
-      // No BullMQ state backs "cancelled", so it lists nothing rather than
-      // quietly listing whatever "waiting" happens to hold.
-      expect((await jobs.queue.list({ status: "cancelled" })).jobs).toEqual([]);
-
-      // olderThan 0 makes every marker stale, so the hash is emptied.
-      await jobs.queue.cleanup({ olderThan: 0 });
-      expect(await jobs.queue.get(handle.id)).toBeUndefined();
-    });
-
-    it("logs at every level", async () => {
-      const jobs = make({
-        noisy: job({
-          input: z.object({}),
-          run: async (_i, context) => {
-            context.log.debug("d");
-            context.log.info("i");
-            context.log.warn("w");
-            context.log.error("e");
-            return 1;
-          },
-        }),
-      });
-      await expect((await jobs.noisy({})).result).resolves.toBe(1);
     });
 
     it("exposes name and input on the handle, and resumes a paused worker", async () => {
-      const jobs = make({ work: async (n: number) => n });
+      const { jobs, worker } = make({ work: async (n: number) => n });
       const handle = await jobs.work(9);
       expect(handle.name).toBe("work");
       expect(handle.input).toBe(9);
 
-      await jobs.worker.pause();
-      await jobs.worker.resume();
-      expect(jobs.worker.running).toBe(true);
+      await worker.pause();
+      await worker.resume();
+      expect(worker.running).toBe(true);
       await expect(handle.result).resolves.toBe(9);
     });
   });

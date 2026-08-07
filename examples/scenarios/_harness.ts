@@ -11,10 +11,9 @@
 import { randomUUID } from "node:crypto";
 import { enqiu } from "../../src/index.js";
 import type {
+  Enqiu,
   EnqiuOptions,
   JobDefinitions,
-  JobsApi,
-  WorkerApi,
 } from "../../src/index.js";
 
 const GREY = "[90m";
@@ -61,13 +60,18 @@ export async function expectRejects(
   expect(rejected, description);
 }
 
-/** Every scenario ends the same way: shut down, report, exit clean. */
+/**
+ * Every scenario ends the same way: shut down, report, exit clean.
+ *
+ * Takes the `close` from a destructured instance, which is how these are meant
+ * to be used — `const { jobs, queue, worker, close } = makeJobs(…)`.
+ */
 export async function finish(
   name: string,
-  jobs: { worker: WorkerApi },
+  close: (options?: { drain?: boolean }) => Promise<void>,
   options?: { drain?: boolean }
 ): Promise<never> {
-  await jobs.worker.close(options);
+  await close(options);
   process.stdout.write(`\n${GREEN}${name}: ${checks} checks passed${OFF}\n`);
   process.exit(0);
 }
@@ -91,7 +95,7 @@ export function requireRedis(): EnqiuOptions["connection"] {
 export function makeJobs<const Definitions extends JobDefinitions>(
   definitions: Definitions,
   overrides: Partial<Omit<EnqiuOptions, "connection">> = {}
-): JobsApi<Definitions> {
+): Enqiu<Definitions> {
   return enqiu(definitions, {
     name: `scenario-${randomUUID()}`,
     connection: requireRedis(),

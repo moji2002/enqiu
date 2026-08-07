@@ -36,8 +36,7 @@ type PathSegment = string | number;
 function fail(path: readonly PathSegment[], reason: string): never {
   let rendered = "$";
   for (const segment of path) {
-    rendered +=
-      typeof segment === "number" ? `[${segment}]` : `.${segment}`;
+    rendered += typeof segment === "number" ? `[${segment}]` : `.${segment}`;
   }
   throw new JobSerializationError(rendered, reason);
 }
