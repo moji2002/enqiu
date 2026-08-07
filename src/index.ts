@@ -49,8 +49,6 @@ export type {
   StandardSchemaIssue,
   StandardSchemaV1,
   SubmitOptions,
-  TelemetryEvent,
-  TelemetrySink,
   WorkerApi,
   WorkerOptions,
   WorkerStartOptions,

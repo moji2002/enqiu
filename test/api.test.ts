@@ -418,10 +418,12 @@ describeRedis("enqiu over BullMQ", () => {
       expect(removed.length).toBeGreaterThan(0);
     });
 
-    it("pauses and resumes the worker", async () => {
-      const { jobs, worker } = make(echo);
+    it("reports the worker's state through a pause it did not make", async () => {
+      const { jobs, worker, bull } = make(echo);
       expect(worker.running).toBe(true);
-      await worker.pause();
+      // Paused through the escape hatch: `running` is read from BullMQ, not
+      // mirrored, so it sees a pause Enqiu was not asked for.
+      await bull.worker?.pause();
       expect(worker.running).toBe(false);
       await worker.start({ concurrency: 2 });
       expect(worker.running).toBe(true);
@@ -482,36 +484,6 @@ describeRedis("enqiu over BullMQ", () => {
       await expect((await jobs.empty({})).result).rejects.toThrow(
         "must not be empty"
       );
-    });
-
-    it("forwards the worker's own lifecycle to telemetry, not just Enqiu's", async () => {
-      const events: string[] = [];
-      const { jobs } = make(
-        {
-          work: job({
-            input: z.object({}),
-            run: async (_input, context) => {
-              context.log.info("note");
-              return 1;
-            },
-          }),
-          doomed: job({
-            input: z.object({}),
-            run: async () => {
-              throw new Error("nope");
-            },
-          }),
-        },
-        { telemetry: { emit: (event) => events.push(event.type) } }
-      );
-      await (await jobs.work({})).result;
-      await (await jobs.doomed({})).result.catch(() => undefined);
-      await waitFor(() => events.includes("job.failed"));
-
-      expect(events).toContain("job.log.info");
-      // A completion and a failure are what anyone wiring telemetry came for.
-      expect(events).toContain("job.succeeded");
-      expect(events).toContain("job.failed");
     });
 
     it("logs at every level", async () => {
@@ -771,9 +743,6 @@ describeRedis("enqiu over BullMQ", () => {
 
     it("rejects out-of-range queue arguments", async () => {
       const { jobs, queue } = producer();
-      await expect(queue.setConcurrency(0)).rejects.toThrow(
-        "concurrency must be a positive integer"
-      );
       await expect(queue.cleanup({ olderThan: -1 })).rejects.toThrow(
         "non-negative finite"
       );
@@ -817,13 +786,13 @@ describeRedis("enqiu over BullMQ", () => {
     });
 
     it("exposes name and input on the handle, and resumes a paused worker", async () => {
-      const { jobs, worker } = make(echo);
+      const { jobs, worker, bull } = make(echo);
       const handle = await jobs.work(9);
       expect(handle.name).toBe("work");
       expect(handle.input).toBe(9);
 
-      await worker.pause();
-      await worker.resume();
+      await bull.worker?.pause();
+      bull.worker?.resume();
       expect(worker.running).toBe(true);
       await expect(handle.result).resolves.toBe(9);
     });

@@ -4,8 +4,8 @@
  * A dependency breaks, jobs pile up in `failed`, and once it is fixed someone
  * has to find and replay them. Separately, a deploy must not drop queued work.
  *
- * Exercises: querying by terminal status, redrive(), telemetry, and the
- * difference between a draining close and an abrupt one.
+ * Exercises: querying by terminal status, redrive(), and the difference
+ * between a draining close and an abrupt one.
  */
 
 import { z } from "zod";
@@ -19,10 +19,8 @@ heading(
 
 let dependencyUp = false;
 const delivered: string[] = [];
-const telemetry: string[] = [];
 
-const { jobs, queue, close } = makeJobs(
-  {
+const { jobs, queue, close } = makeJobs({
     deliverPayout: job({
       input: z.object({ payoutId: z.string() }),
       retry: { attempts: 2, backoff: 10 },
@@ -32,8 +30,7 @@ const { jobs, queue, close } = makeJobs(
         return { payoutId };
       },
     }),
-  },
-  { telemetry: { emit: (event) => telemetry.push(event.type) } }
+  }
 );
 
 step("the banking partner is down; 4 payouts are attempted …");

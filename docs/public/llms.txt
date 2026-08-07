@@ -24,8 +24,9 @@ npm install enqiu@beta bullmq ioredis
 - `jobs.<name>.bulk(inputs, options?)`: Submits many at once.
 - `jobs.<name>.schedule({ id, cron, timezone, input })`: Five-field cron with IANA time zones, backed by BullMQ job schedulers. Returns a handle with `refresh()` and `remove()`.
 - `jobs.<name>.input`: The job's Standard Schema input schema, exposed so an HTTP route can validate against it without redefining the type.
-- Queue controls: `queue.get(id)`, `queue.list({ status, limit, cursor })` (**`status` is required**), `queue.stats()`, `queue.pause()`, `queue.resume()`, `queue.setConcurrency(n)`, `queue.redrive(id)`, `queue.cleanup({ status, olderThan })`, `queue.on(event, cb)`, `queue.onIdle()`.
-- Worker controls: `worker.start({ concurrency })`, `worker.pause()`, `worker.resume()`, `worker.running`.
+- Queue controls: `queue.get(id)`, `queue.list({ status, limit, cursor })` (**`status` is required**), `queue.stats()`, `queue.redrive(id)`, `queue.cleanup({ status, olderThan })`, `queue.on(event, cb)`, `queue.onIdle()`.
+- Worker controls: `worker.start({ concurrency })`, `worker.running`.
+- **Anything BullMQ already exposes is not re-exported.** Pausing a queue or worker, global concurrency, and telemetry are `bull.queue.pause()`, `bull.worker.pause()`, `bull.queue.setGlobalConcurrency(n)` and `bull.worker.on(...)`. Do not generate `queue.pause()`, `worker.pause()`, `queue.setConcurrency()` or a `telemetry` option — they do not exist.
 - `close({ drain })` shuts down the queue, the worker and any open event stream. It is returned by `enqiu()`, not a method on `worker`, because it ends all three — including on a producer-only queue.
 
 ## Job policies

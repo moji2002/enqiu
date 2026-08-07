@@ -10,13 +10,11 @@ import { UnrecoverableError, type Job as BullJob } from "bullmq";
 import { JobTimeoutError, encodeFailure } from "./errors.js";
 import { assertJobValue } from "./serialize.js";
 import type { RuntimeDefinition } from "./definition.js";
-import type { Telemetry } from "./telemetry.js";
 import type { JobContext, JobLogger, Progress } from "./types.js";
 
 export interface RunnerOptions {
   /** Queue-wide deadline, overridden per job. */
   readonly timeout: number | undefined;
-  readonly telemetry: Telemetry;
 }
 
 /** For handlers with no deadline, whose only abort source is BullMQ's own. */
@@ -97,7 +95,6 @@ export class JobRunner {
   }
 
   private createContext(bull: BullJob, signal: AbortSignal): JobContext {
-    const telemetry = this.options.telemetry;
     const id = String(bull.id);
     const write = (
       level: "debug" | "info" | "warn" | "error",
@@ -108,7 +105,6 @@ export class JobRunner {
       void bull
         .log(JSON.stringify({ level, message, fields, at: Date.now() }))
         .catch(() => undefined);
-      telemetry.jobLog(level, { jobId: id, jobName: bull.name, message });
     };
     const log: JobLogger = {
       debug: (m, f) => write("debug", m, f),
@@ -126,7 +122,6 @@ export class JobRunner {
       reportProgress: async (progress: Progress) => {
         validateProgress(progress);
         await bull.updateProgress(assertJobValue(progress));
-        telemetry.jobProgress(id, progress);
       },
     };
   }

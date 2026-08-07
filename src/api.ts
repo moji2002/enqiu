@@ -18,7 +18,6 @@ import { QueueEventStream } from "./events.js";
 import { CancellationMarkers } from "./markers.js";
 import { JobRunner } from "./runner.js";
 import { assertJobValue } from "./serialize.js";
-import { Telemetry } from "./telemetry.js";
 import {
   JobCancelledError,
   JobFailedError,
@@ -78,8 +77,7 @@ class JobStore {
     private readonly queue: Queue,
     private readonly events: QueueEventStream,
     private readonly markers: CancellationMarkers,
-    private readonly worker: Worker | undefined,
-    private readonly telemetry: Telemetry
+    private readonly worker: Worker | undefined
   ) {}
 
   /**
@@ -145,7 +143,6 @@ class JobStore {
     }
 
     await this.markers.write(id, snapshot);
-    this.telemetry.jobCancelled(id, reason);
     return true;
   }
 }
@@ -371,16 +368,6 @@ function createQueueApi<Definitions extends JobDefinitions>(
       };
     },
 
-    pause: () => queue.pause(),
-    resume: () => queue.resume(),
-
-    setConcurrency: async (limit: number) => {
-      if (!Number.isInteger(limit) || limit < 1) {
-        throw new RangeError("concurrency must be a positive integer");
-      }
-      await queue.setGlobalConcurrency(limit);
-    },
-
     redrive: async (id: string) => {
       const bull = await queue.getJob(id);
       if (!bull) throw new Error(`Job "${id}" cannot be redriven`);
@@ -477,14 +464,12 @@ function createWorkerApi(worker: Worker | undefined): WorkerApi {
       if (options.concurrency !== undefined) {
         worker.concurrency = options.concurrency;
       }
-      if (worker.isPaused()) worker.resume();
+      // Awaited on purpose. BullMQ's resume() restarts the main loop only if it
+      // has *already* exited, and right after a pause the loop is still
+      // unwinding — so checking isRunning() before that settles saw a live loop
+      // about to die, and left the worker resumed but not running.
+      if (worker.isPaused()) await worker.resume();
       if (!worker.isRunning()) void worker.run();
-    },
-    pause: async () => {
-      await worker?.pause();
-    },
-    resume: async () => {
-      worker?.resume();
     },
   } satisfies WorkerApi);
 }
@@ -512,15 +497,10 @@ export function enqiu<const Definitions extends JobDefinitions>(
   };
   const queue = new Queue(queueName, base);
 
-  const telemetry = new Telemetry(options.telemetry, queueName);
-
   let worker: Worker | undefined;
   if (options.worker !== false) {
     const { concurrency, autoStart = true } = options.worker ?? {};
-    const runner = new JobRunner(runtimeDefinitions, {
-      timeout: options.timeout,
-      telemetry,
-    });
+    const runner = new JobRunner(runtimeDefinitions, { timeout: options.timeout });
     worker = new Worker(
       queueName,
       // Three parameters on purpose: BullMQ decides whether to create an
@@ -534,13 +514,12 @@ export function enqiu<const Definitions extends JobDefinitions>(
         autorun: false,
       }
     );
-    telemetry.observe(worker);
     if (autoStart) void worker.run();
   }
 
   const events = new QueueEventStream(queue, base);
   const markers = new CancellationMarkers(queue);
-  const store = new JobStore(queue, events, markers, worker, telemetry);
+  const store = new JobStore(queue, events, markers, worker);
 
   const runtime: Runtime = {
     queue,

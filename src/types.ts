@@ -311,13 +311,16 @@ export interface QueueEventMap {
   error: Error;
 }
 
+/**
+ * Only what Enqiu types or computes. Pausing, resuming and setting global
+ * concurrency are `bull.queue.pause()`, `.resume()` and
+ * `.setGlobalConcurrency()`; re-exporting them under new names would be a
+ * second vocabulary for the same call.
+ */
 export interface QueueApi<Definitions extends JobDefinitions> {
   get(id: string): Promise<AnyJobSnapshot<Definitions> | undefined>;
   list(query: JobListQuery): Promise<JobListPage<AnyJobSnapshot<Definitions>>>;
   stats(): Promise<QueueStats>;
-  pause(): Promise<void>;
-  resume(): Promise<void>;
-  setConcurrency(limit: number): Promise<void>;
   redrive(id: string): Promise<JobHandle>;
   cleanup(query?: CleanupQuery): Promise<string[]>;
   /**
@@ -338,36 +341,19 @@ export interface WorkerStartOptions {
   concurrency?: number;
 }
 
+/**
+ * Only what needs logic. Pausing and resuming a worker is `bull.worker.pause()`
+ * and `bull.worker.resume()` — forwarding those through a second name adds a
+ * thing to learn and nothing else.
+ */
 export interface WorkerApi {
   readonly running: boolean;
   start(options?: WorkerStartOptions): Promise<void>;
-  pause(): Promise<void>;
-  resume(): Promise<void>;
 }
 
 export interface WorkerOptions {
   concurrency?: number;
   autoStart?: boolean;
-}
-
-export interface TelemetryEvent {
-  readonly type: string;
-  readonly queue: string;
-  readonly timestamp: number;
-  readonly fields?: Readonly<Record<string, unknown>>;
-}
-
-/**
- * Named `TelemetrySink` rather than `Telemetry`, which BullMQ already exports
- * as something else entirely — an OpenTelemetry tracer pair.
- *
- * Receives what the worker does as well as what Enqiu does: completions,
- * failures, stalls and worker errors alongside logs, progress and
- * cancellations. Note that providing a sink attaches a listener to the
- * worker's `error` event, which otherwise throws when nothing is listening.
- */
-export interface TelemetrySink {
-  emit(event: TelemetryEvent): void;
 }
 
 export interface EnqiuOptions {
@@ -388,7 +374,6 @@ export interface EnqiuOptions {
    * your behalf. @default 100
    */
   logLimit?: number;
-  telemetry?: TelemetrySink;
 }
 
 /** Your jobs, and nothing else. */

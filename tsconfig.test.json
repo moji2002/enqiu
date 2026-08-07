@@ -7,6 +7,11 @@
     "rootDir": ".",
     "types": ["node", "vitest/globals"]
   },
+  // The base config excludes `test`, and `exclude` is inherited rather than
+  // replaced by `include` — so without this, `test/**` was listed here and
+  // silently never checked. Every `expectTypeOf` and `@ts-expect-error` in the
+  // suite is a no-op at runtime and only means something to tsc.
+  "exclude": ["node_modules", "dist"],
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",

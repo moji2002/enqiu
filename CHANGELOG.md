@@ -32,8 +32,15 @@ would have had if it had been a wrapper from the start.
 - **`validatePayloads` is gone** and the check always runs. Measured honestly it
   is worth about a point of a two-point overhead, which is not a trade worth
   offering.
-- **`Telemetry` is now `TelemetrySink`**, freeing the name BullMQ already
-  exports for something else entirely.
+- **Telemetry is removed.** Every event it emitted was either BullMQ's own —
+  available on `bull.worker.on(...)` — or reconstructible from one. A hook that
+  forwards another library's events under new names is a second vocabulary for
+  the same thing.
+- **`queue.pause`, `queue.resume`, `queue.setConcurrency`, `worker.pause` and
+  `worker.resume` are removed.** All five forwarded to BullMQ and added
+  nothing. They are `bull.queue.pause()`, `.resume()`,
+  `.setGlobalConcurrency(n)`, `bull.worker.pause()` and `.resume()`. What
+  remains on `queue` and `worker` is what Enqiu types or computes.
 - Dead surface removed: `encodeJobValue`, `decodeJobValue`, `cloneJobValue`,
   `serializeError`, `SubmitOptions.timeout`/`expiresIn`, the `"expired"` status,
   `JobSnapshot.logs`, `TelemetryEvent.job`, `SerializedError.stack`,
@@ -61,6 +68,15 @@ would have had if it had been a wrapper from the start.
   the node-redis and Bun clients BullMQ 6 adapts.
 - **`worker.running` and the closed check were mirrored state**, so pausing or
   closing through `bull` left them claiming otherwise. Both read from BullMQ.
+- **`worker.start()` left a paused worker resumed but not running.** BullMQ's
+  `resume()` restarts the main loop only if it has already exited, and right
+  after a pause it is still unwinding; the resume was not awaited, so the
+  `isRunning()` check saw a live loop that was about to die. A wrapper that has
+  since been deleted was adding the microtask that hid this.
+- **`test/**` was never type-checked.** The base config excludes `test`, and
+  `exclude` is inherited rather than replaced by a child's `include` — so
+  `typecheck:test` silently skipped the suite. Every `expectTypeOf` and
+  `@ts-expect-error` in it was inert. They are checked now.
 
 ### Changed
 
@@ -68,7 +84,7 @@ would have had if it had been a wrapper from the start.
   BullMQ vocabulary mapping is pure and now has its own suite: a run without
   `ENQIU_TEST_REDIS_URL` verifies something instead of nothing, and holds
   `mapping.ts` and `serialize.ts` to their own coverage thresholds.
-- 93 tests, 99% statements and 91% branches against a real Redis; 45 of them
+- 92 tests, 99% statements and 91% branches against a real Redis; 45 of them
   need no server at all.
 - The cancellation marker stores the finished snapshot itself rather than a
   reason beside a copy of one. It was three records of one event that had to

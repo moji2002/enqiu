@@ -78,9 +78,13 @@ beside it:
 ```ts
 await queue.stats();      // counts by status
 await queue.onIdle();     // resolves when nothing is outstanding
-await worker.pause();
 await close();            // queue, worker and event stream
 ```
+
+Only what Enqiu types or computes is here. Pausing a queue or a worker, setting
+global concurrency and anything else BullMQ already exposes is `bull.queue.*`
+and `bull.worker.*` — a second name for the same call would be one more thing
+to learn and nothing else.
 
 A plain handler works too, with input and output still inferred:
 
@@ -104,6 +108,12 @@ const { jobs } = enqiu(
   Also enforced by Enqiu.
 - **A serialization guard** that rejects functions, symbols, cycles and sparse
   arrays with the exact path, instead of failing later inside the queue.
+- **A `cancelled` status,** which BullMQ has no state for: cancelling a job that
+  has not started removes it, so Enqiu records the finished snapshot and
+  `refresh()` can still tell "cancelled" from "never existed".
+- **Failures that survive as classes.** BullMQ hands a failure to another
+  process as one string; a timeout or an expiry writes its kind down, so
+  `handle.result` rejects with `JobTimeoutError` rather than a bare `Error`.
 
 ## Escaping the layer
 
