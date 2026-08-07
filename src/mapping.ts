@@ -183,3 +183,38 @@ export function decodeCursor(
 export function encodeCursor(offsets: readonly number[]): string {
   return offsets.join(".");
 }
+
+/** What one BullMQ state contributed to a page, and where it was read from. */
+export interface StatePage<T> {
+  readonly offset: number;
+  readonly items: readonly T[];
+}
+
+/**
+ * Take one page's worth across the states, and say where each got to.
+ *
+ * Pure on purpose. This is the arithmetic a single-number cursor got wrong, and
+ * leaving it inside the async method that fetches the states put it out of
+ * reach of every test that runs without a server.
+ *
+ * Offsets arrive attached to their items rather than as a second array: they
+ * are only ever meaningful in pairs, and two arrays could disagree in length
+ * with nothing to catch it.
+ */
+export function mergePage<T>(
+  pages: readonly StatePage<T>[],
+  limit: number
+): { items: T[]; next: number[] } {
+  const items: T[] = [];
+  const next: number[] = [];
+  for (const page of pages) {
+    let taken = 0;
+    for (const item of page.items) {
+      if (items.length === limit) break;
+      items.push(item);
+      taken += 1;
+    }
+    next.push(page.offset + taken);
+  }
+  return { items, next };
+}

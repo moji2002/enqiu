@@ -10,18 +10,13 @@ import { UnrecoverableError, type Job as BullJob } from "bullmq";
 import { JobTimeoutError, encodeFailure } from "./errors.js";
 import { assertJobValue } from "./serialize.js";
 import type { RuntimeDefinition } from "./definition.js";
-import type {
-  JobContext,
-  JobLogger,
-  Progress,
-  TelemetrySink,
-} from "./types.js";
+import type { Telemetry } from "./telemetry.js";
+import type { JobContext, JobLogger, Progress } from "./types.js";
 
 export interface RunnerOptions {
-  readonly queueName: string;
   /** Queue-wide deadline, overridden per job. */
   readonly timeout: number | undefined;
-  readonly telemetry: TelemetrySink | undefined;
+  readonly telemetry: Telemetry;
 }
 
 /** For handlers with no deadline, whose only abort source is BullMQ's own. */
@@ -110,7 +105,6 @@ export class JobRunner {
   }
 
   private createContext(bull: BullJob, signal: AbortSignal): JobContext {
-    const queue = this.options.queueName;
     const telemetry = this.options.telemetry;
     const write = (
       level: "debug" | "info" | "warn" | "error",
@@ -121,11 +115,10 @@ export class JobRunner {
       void bull
         .log(JSON.stringify({ level, message, fields, at: Date.now() }))
         .catch(() => undefined);
-      telemetry?.emit({
-        type: `job.log.${level}`,
-        queue,
-        timestamp: Date.now(),
-        fields: { jobId: String(bull.id), jobName: bull.name, message },
+      telemetry.jobLog(level, {
+        jobId: String(bull.id),
+        jobName: bull.name,
+        message,
       });
     };
     const log: JobLogger = {
@@ -144,12 +137,7 @@ export class JobRunner {
       reportProgress: async (progress: Progress) => {
         validateProgress(progress);
         await bull.updateProgress(assertJobValue(progress) as never);
-        telemetry?.emit({
-          type: "job.progress",
-          queue,
-          timestamp: Date.now(),
-          fields: { jobId: String(bull.id), progress },
-        });
+        telemetry.jobProgress(String(bull.id), progress);
       },
     };
   }

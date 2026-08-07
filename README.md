@@ -26,7 +26,7 @@ experience.
 > exact version: it is published under the `beta` dist-tag, so a plain
 > `npm install enqiu` will not install it.
 >
-> The layer in between is new. It is covered at 98% of statements and 90% of
+> The layer in between is new. It is covered at 98% of statements and 91% of
 > branches against a real Redis, and the two parts that need no server — the
 > BullMQ vocabulary mapping and the serialization check — are held to their own
 > thresholds in either mode.

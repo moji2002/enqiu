@@ -66,7 +66,17 @@ would have had if it had been a wrapper from the start.
   BullMQ vocabulary mapping is pure and now has its own suite: a run without
   `ENQIU_TEST_REDIS_URL` verifies something instead of nothing, and holds
   `mapping.ts` and `serialize.ts` to their own coverage thresholds.
-- 84 tests, 98% statements and 90% branches against a real Redis.
+- 91 tests, 98% statements and 91% branches against a real Redis; 45 of them
+  need no server at all.
+- Telemetry has one module that owns the event vocabulary and the envelope.
+  The names were inline string literals at three sites across two files, with
+  `{ type, queue, timestamp, fields }` rebuilt by hand at each — adding an
+  event meant knowing which file to open. Where events fire is unchanged;
+  telemetry is cross-cutting and centralising that would be worse.
+- The paging arithmetic behind `queue.list()` is a pure function, so the
+  calculation a single-number cursor got wrong is now covered without a server.
+  It takes each state's offset attached to its items rather than as a second
+  array, which makes a length mismatch between the two unrepresentable.
 - `queue.on()` no longer asks Redis for a state its own event already carried.
 - `close()` shuts the three connections down concurrently; `queue.onIdle()`
   backs its poll off from 20ms to 250ms.

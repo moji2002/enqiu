@@ -14,6 +14,7 @@ import {
   decodeCursor,
   encodeCursor,
   everyState,
+  mergePage,
   queueEventMap,
   toJobsOptions,
   toSnapshot,
@@ -143,6 +144,54 @@ describe("cursor", () => {
   });
 });
 
+describe("paging across states", () => {
+  const page = <T,>(offset: number, items: T[]) => ({ offset, items });
+
+  it("advances only the state a page was taken from", () => {
+    expect(mergePage([page(0, ["a", "b"]), page(0, ["x"])], 2)).toEqual({
+      items: ["a", "b"],
+      next: [2, 0],
+    });
+  });
+
+  it("spills into the next state and advances both", () => {
+    expect(mergePage([page(0, ["a"]), page(0, ["x", "y"])], 3)).toEqual({
+      items: ["a", "x", "y"],
+      next: [1, 2],
+    });
+  });
+
+  it("counts on from where the cursor left off", () => {
+    expect(mergePage([page(4, ["c"]), page(7, ["z"])], 2)).toEqual({
+      items: ["c", "z"],
+      next: [5, 8],
+    });
+  });
+
+  it("stops at the limit without consuming what it did not take", () => {
+    // The second state is untouched, so its offset must not move — advancing
+    // it here is exactly how the next page would skip a job.
+    expect(mergePage([page(0, ["a", "b", "c"]), page(0, ["x"])], 2)).toEqual({
+      items: ["a", "b"],
+      next: [2, 0],
+    });
+  });
+
+  it("returns a short final page and leaves the offsets where they landed", () => {
+    expect(mergePage([page(0, ["a"]), page(3, [])], 10)).toEqual({
+      items: ["a"],
+      next: [1, 3],
+    });
+  });
+
+  it("handles a status with nothing in it at all", () => {
+    expect(mergePage([page(0, []), page(0, [])], 5)).toEqual({
+      items: [],
+      next: [0, 0],
+    });
+  });
+});
+
 describe("job options", () => {
   it("keeps the configured number of log lines", () => {
     expect(toJobsOptions({}, {}, { logLimit: 5, retry: undefined })).toEqual({
@@ -154,6 +203,10 @@ describe("job options", () => {
     expect(toJobsOptions({ priority: "high" }, {}, noDefaults).priority).toBe(1);
     expect(toJobsOptions({ priority: "low" }, {}, noDefaults).priority).toBe(3);
     expect(toJobsOptions({ priority: 9 }, {}, noDefaults).priority).toBe(9);
+  });
+
+  it("passes a numeric delay through as the duration it already is", () => {
+    expect(toJobsOptions({ delay: 500 }, {}, noDefaults).delay).toBe(500);
   });
 
   it("turns a Date delay into a duration, never a negative one", () => {

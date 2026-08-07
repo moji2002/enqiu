@@ -18,6 +18,7 @@ import { QueueEventStream } from "./events.js";
 import { CancellationMarkers } from "./markers.js";
 import { JobRunner } from "./runner.js";
 import { assertJobValue } from "./serialize.js";
+import { Telemetry } from "./telemetry.js";
 import {
   JobCancelledError,
   JobFailedError,
@@ -32,6 +33,7 @@ import {
   decodeCursor,
   encodeCursor,
   everyState,
+  mergePage,
   queueEventMap,
   toJobsOptions,
   toSnapshot,
@@ -78,8 +80,7 @@ class JobStore {
     private readonly events: QueueEventStream,
     private readonly markers: CancellationMarkers,
     private readonly worker: Worker | undefined,
-    private readonly telemetry: EnqiuOptions["telemetry"],
-    private readonly queueName: string
+    private readonly telemetry: Telemetry
   ) {}
 
   /** `state` skips a round trip when the caller already knows it. */
@@ -154,12 +155,7 @@ class JobStore {
     }
 
     await this.markers.write(id, { reason, at: Date.now(), snapshot });
-    this.telemetry?.emit({
-      type: "job.cancelled",
-      queue: this.queueName,
-      timestamp: Date.now(),
-      fields: { jobId: id, reason },
-    });
+    this.telemetry.jobCancelled(id, reason);
     return true;
   }
 }
@@ -356,29 +352,21 @@ function createQueueApi<Definitions extends JobDefinitions>(
       // One range per state, each with its own offset, because BullMQ applies
       // a range to every state separately.
       const offsets = decodeCursor(query.cursor, states.length);
-      const perState = await Promise.all(
-        states.map((state, index) => {
-          const from = offsets[index] ?? 0;
-          return queue.getJobs([state], from, from + limit - 1);
+      const pages = await Promise.all(
+        states.map(async (state, index) => {
+          const offset = offsets[index] ?? 0;
+          return {
+            offset,
+            items: await queue.getJobs([state], offset, offset + limit - 1),
+          };
         })
       );
 
-      const consumed = states.map(() => 0);
-      const jobs: JobSnapshot[] = [];
-      for (const [index, bulls] of perState.entries()) {
-        for (const bull of bulls) {
-          if (jobs.length === limit) break;
-          jobs.push(toSnapshot(bull, query.status));
-          consumed[index] = (consumed[index] ?? 0) + 1;
-        }
-      }
-
-      page.jobs = jobs as AnyJobSnapshot<Definitions>[];
-      if (jobs.length === limit) {
-        page.cursor = encodeCursor(
-          offsets.map((offset, index) => offset + (consumed[index] ?? 0))
-        );
-      }
+      const { items, next } = mergePage(pages, limit);
+      page.jobs = items.map((bull) =>
+        toSnapshot(bull, query.status)
+      ) as AnyJobSnapshot<Definitions>[];
+      if (items.length === limit) page.cursor = encodeCursor(next);
       return page;
     },
 
@@ -482,8 +470,7 @@ function createQueueApi<Definitions extends JobDefinitions>(
   } satisfies QueueApi<Definitions>);
 }
 
-function createWorkerApi(runtime: Runtime): WorkerApi {
-  const { worker } = runtime;
+function createWorkerApi(worker: Worker | undefined): WorkerApi {
   return Object.freeze({
     /**
      * Read from BullMQ rather than mirrored here. A caller holding
@@ -537,13 +524,14 @@ export function enqiu<const Definitions extends JobDefinitions>(
   };
   const queue = new Queue(queueName, base);
 
+  const telemetry = new Telemetry(options.telemetry, queueName);
+
   let worker: Worker | undefined;
   if (options.worker !== false) {
     const { concurrency, autoStart = true } = options.worker ?? {};
     const runner = new JobRunner(runtimeDefinitions, {
-      queueName,
       timeout: options.timeout,
-      telemetry: options.telemetry,
+      telemetry,
     });
     worker = new Worker(
       queueName,
@@ -558,20 +546,13 @@ export function enqiu<const Definitions extends JobDefinitions>(
         autorun: false,
       }
     );
-    forwardWorkerEvents(worker, queueName, options.telemetry);
+    telemetry.observe(worker);
     if (autoStart) void worker.run();
   }
 
   const events = new QueueEventStream(queue, { queueName, base });
   const markers = new CancellationMarkers(queue);
-  const store = new JobStore(
-    queue,
-    events,
-    markers,
-    worker,
-    options.telemetry,
-    queueName
-  );
+  const store = new JobStore(queue, events, markers, worker, telemetry);
 
   const runtime: Runtime = {
     queueName,
@@ -604,7 +585,7 @@ export function enqiu<const Definitions extends JobDefinitions>(
   return Object.freeze({
     jobs: Object.freeze(jobs) as JobsApi<Definitions>,
     queue: queueApi,
-    worker: createWorkerApi(runtime),
+    worker: createWorkerApi(worker),
     bull: Object.freeze({ queue, worker }),
     close: async (closeOptions?: { drain?: boolean }) => {
       const running =
@@ -615,36 +596,4 @@ export function enqiu<const Definitions extends JobDefinitions>(
       await Promise.all([worker?.close(), events.close(), queue.close()]);
     },
   });
-}
-
-/**
- * The worker's own events, forwarded to the sink.
- *
- * Without this a telemetry hook sees only what Enqiu does — logs, progress,
- * cancellations — and never a completion or a failure, which is what anyone
- * wiring one up came for. Note this also attaches an `error` listener: BullMQ
- * emits `error` for Redis trouble, and an EventEmitter with no `error`
- * listener throws.
- */
-function forwardWorkerEvents(
-  worker: Worker,
-  queue: string,
-  telemetry: EnqiuOptions["telemetry"]
-): void {
-  if (!telemetry) return;
-  const emit = (type: string, fields: Record<string, unknown>): void => {
-    telemetry.emit({ type, queue, timestamp: Date.now(), fields });
-  };
-  worker.on("completed", (bull) => {
-    emit("job.succeeded", { jobId: String(bull.id), jobName: bull.name });
-  });
-  worker.on("failed", (bull, error) => {
-    emit("job.failed", {
-      jobId: bull ? String(bull.id) : undefined,
-      jobName: bull?.name,
-      message: error.message,
-    });
-  });
-  worker.on("stalled", (jobId) => emit("job.stalled", { jobId }));
-  worker.on("error", (error) => emit("worker.error", { message: error.message }));
 }
