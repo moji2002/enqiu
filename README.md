@@ -178,6 +178,18 @@ campaigns, report progress, a transcoding pool, and failure triage. The
 reasoning behind the workload choices is in
 [`docs/use-case-research.md`](docs/use-case-research.md).
 
+## Releasing
+
+```bash
+pnpm run release:beta        # npm publish --tag beta
+```
+
+The tag is in the script rather than in `publishConfig`, because npm 11 does not
+honour `publishConfig.tag` — a plain `npm publish` resolves to `latest` and would
+hand a beta to every `npm install enqiu`. `prepack` runs the full check first,
+and `build` cleans `dist` before compiling, since `tsc` leaves deleted modules
+behind and they would otherwise ship.
+
 ## License
 
 MIT

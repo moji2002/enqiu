@@ -18,7 +18,8 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test": "vitest run",
@@ -27,7 +28,8 @@
     "scenarios": "tsx examples/scenarios/run-all.ts",
     "test:watch": "vitest",
     "check": "pnpm run typecheck && pnpm run typecheck:test && pnpm run test:coverage && pnpm run build",
-    "prepack": "pnpm run check"
+    "prepack": "pnpm run check",
+    "release:beta": "npm publish --tag beta"
   },
   "keywords": [
     "queue",

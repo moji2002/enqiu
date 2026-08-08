@@ -78,6 +78,16 @@ would have had if it had been a wrapper from the start.
   `typecheck:test` silently skipped the suite. Every `expectTypeOf` and
   `@ts-expect-error` in it was inert. They are checked now.
 
+### Packaging
+
+- **`dist` is cleaned before every build.** `tsc` never removes files from its
+  `outDir`, so every module deleted since 0.1.x was still sitting there —
+  `dist/memory/`, `dist/drivers/`, `dist/redis/`, `dist/cron.*` — and would have
+  shipped. The tarball went from 86 files / 84.5 kB to 26 / 31.5 kB.
+- **The beta dist-tag lives in a `release:beta` script.** npm 11 does not honour
+  `publishConfig.tag`: a plain `npm publish` resolves to `latest`, which would
+  have handed a beta to every `npm install enqiu`.
+
 ### Changed
 
 - `src/` is ten modules by concern rather than one 1,000-line facade. The
