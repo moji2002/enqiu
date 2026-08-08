@@ -310,26 +310,26 @@ pre .c {
 
 /* ---- driver comparison ---- */
 
-.drivers {
+.split {
   display: grid;
   gap: 1rem;
   margin-bottom: 1rem;
 }
 
 @media (min-width: 40rem) {
-  .drivers {
+  .split {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 
-.driver {
+.half {
   background: var(--raised);
   border: 1px solid var(--rule);
   border-radius: 8px;
   padding: 1rem 1.1rem;
 }
 
-.driver h3 {
+.half h3 {
   font-family: var(--mono);
   font-size: 0.8125rem;
   font-weight: 700;
@@ -337,7 +337,7 @@ pre .c {
   color: var(--accent);
 }
 
-.driver p {
+.half p {
   font-size: 0.875rem;
   color: var(--muted);
   margin: 0;

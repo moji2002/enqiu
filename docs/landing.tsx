@@ -144,17 +144,21 @@ function Landing() {
 
         <section aria-labelledby="built-on">
           <h2 id="built-on">Built on BullMQ</h2>
-          <div className="drivers">
-            <div className="driver">
+          <div className="split">
+            <div className="half">
               <h3>Enqiu adds</h3>
               <p>
                 Inferred job names, input and result types. Standard Schema validation at the
                 boundary, so bad input never reaches the queue. A per-attempt{" "}
                 <code>timeout</code> with an <code>AbortSignal</code>, and{" "}
-                <code>expiresIn</code> — BullMQ has neither.
+                <code>expiresIn</code> — BullMQ has neither. A{" "}
+                <code>cancelled</code> status, which BullMQ has no state for. And failures that
+                survive as classes: a timeout writes its kind down, so{" "}
+                <code>handle.result</code> rejects with <code>JobTimeoutError</code> rather than a
+                bare <code>Error</code>.
               </p>
             </div>
-            <div className="driver">
+            <div className="half">
               <h3>BullMQ provides</h3>
               <p>
                 Storage, scheduling and execution. Retries and backoff, priorities, delays, cron,
@@ -166,7 +170,9 @@ function Landing() {
           <p className="note">
             <code>bullmq</code> and <code>ioredis</code> are peer dependencies: Enqiu does not pick
             versions or open connections for you. Measured against raw BullMQ on the same Redis,
-            the layer costs about 2% for a bare handler and 3% with Zod validation.
+            the layer costs about 2% for a bare handler and 3% with Zod validation. Anything BullMQ
+            already exposes is not re-exported under a second name — pausing, global concurrency
+            and its own events stay on <code>bull.queue</code> and <code>bull.worker</code>.
           </p>
           <p className="note">
             Gaps in BullMQ&rsquo;s open-source tier are left as gaps rather than faked. Per-key
